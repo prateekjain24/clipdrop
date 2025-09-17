@@ -8,8 +8,9 @@ import base64
 import io
 import re
 import subprocess
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
+import html2text
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
@@ -103,6 +104,103 @@ def parse_html_content(html: str) -> Tuple[str, List[dict]]:
         images.append(image_info)
 
     return text, images
+
+
+def parse_html_content_ordered(html: str) -> List[Tuple[str, Any]]:
+    """
+    Parse HTML content and extract ordered chunks of text and images.
+    Preserves formatting using Markdown.
+
+    Args:
+        html: HTML string to parse
+
+    Returns:
+        List of (type, content) tuples in document order
+    """
+    soup = BeautifulSoup(html, 'lxml')
+
+    # Remove script and style elements
+    for script in soup(["script", "style"]):
+        script.decompose()
+
+    chunks = []
+
+    # Create a custom HTML with placeholders for images
+    img_counter = 0
+    img_map = {}
+
+    # Process images and replace with placeholders
+    for img in soup.find_all('img'):
+        src = img.get('src', '')
+        if src:
+            placeholder = f"[IMAGE_{img_counter}]"
+            img_map[placeholder] = src
+            # Replace image with placeholder text
+            img.replace_with(soup.new_string(placeholder))
+            img_counter += 1
+
+    # Convert HTML to Markdown
+    h = html2text.HTML2Text()
+    h.body_width = 0  # Don't wrap lines
+    h.unicode_snob = True  # Use unicode
+    h.skip_internal_links = False
+    h.inline_links = True  # Keep links inline
+    h.protect_links = True
+    h.wrap_links = False
+    h.ul_style_dash = True  # Use dashes for unordered lists
+
+    # Convert the modified HTML to Markdown
+    markdown_text = h.handle(str(soup))
+
+    # Split text by image placeholders and reconstruct with images
+    current_text = []
+    lines = markdown_text.split('\n')
+
+    for line in lines:
+        # Check if line contains an image placeholder
+        found_placeholder = None
+        for placeholder in img_map.keys():
+            if placeholder in line:
+                found_placeholder = placeholder
+                break
+
+        if found_placeholder:
+            # Add accumulated text before image
+            if current_text:
+                text = '\n'.join(current_text).strip()
+                if text:
+                    chunks.append(('text', text))
+                current_text.clear()
+
+            # Process and add the image
+            src = img_map[found_placeholder]
+            img_data = None
+
+            if src.startswith('data:image'):
+                img_data = extract_base64_image(src)
+            elif src.startswith(('http://', 'https://')):
+                img_data = download_image(src)
+            elif src.startswith('//'):
+                img_data = download_image('https:' + src)
+
+            if img_data:
+                chunks.append(('image', img_data))
+
+            # Remove the placeholder from the line and continue
+            remaining_text = line.replace(found_placeholder, '').strip()
+            if remaining_text:
+                current_text.append(remaining_text)
+        else:
+            # Regular text line
+            current_text.append(line)
+
+    # Add any remaining text
+    if current_text:
+        text = '\n'.join(current_text).strip()
+        if text:
+            chunks.append(('text', text))
+
+    return chunks
 
 
 def extract_base64_image(data_url: str) -> Optional[Image.Image]:

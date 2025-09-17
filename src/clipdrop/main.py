@@ -8,7 +8,7 @@ from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
-from clipdrop import clipboard, detect, files, images
+from clipdrop import clipboard, detect, files, images, pdf
 from clipdrop.error_helpers import display_error, show_success_message
 
 console = Console()
@@ -114,49 +114,56 @@ def main(
         # Handle HTML mixed content (from web pages)
         if content_type == 'html_mixed':
             from clipdrop import html_parser
-            html_data = html_parser.get_html_with_images()
-            if html_data:
-                _, html_text, html_images = html_data
-                file_path = Path(filename)
+            # Try to get ordered chunks first
+            html_content = html_parser.get_html_from_clipboard()
+            if html_content:
+                # Use the new ordered parsing
+                ordered_chunks = html_parser.parse_html_content_ordered(html_content)
 
-                # Add .pdf extension if not present
-                if not file_path.suffix:
-                    final_filename = f"{filename}.pdf"
-                    console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
-                elif file_path.suffix.lower() != '.pdf':
-                    final_filename = f"{file_path.stem}.pdf"
-                    console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
-                else:
-                    final_filename = filename
-                    console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
+                if ordered_chunks:
+                    file_path = Path(filename)
 
-                file_path = Path(final_filename)
+                    # Add .pdf extension if not present
+                    if not file_path.suffix:
+                        final_filename = f"{filename}.pdf"
+                        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                    elif file_path.suffix.lower() != '.pdf':
+                        final_filename = f"{file_path.stem}.pdf"
+                        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                    else:
+                        final_filename = filename
+                        console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
 
-                # Show preview if requested
-                if preview:
-                    console.print(Panel(
-                        f"[cyan]HTML Content:[/cyan]\n"
-                        f"Text: {len(html_text)} characters\n"
-                        f"Images: {len(html_images)} embedded images",
-                        title=f"Preview: {final_filename}",
-                        expand=False
-                    ))
-                    if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
-                        console.print("[yellow]Operation cancelled.[/yellow]")
-                        raise typer.Exit()
+                    file_path = Path(final_filename)
 
-                # Create PDF from HTML content
-                from clipdrop import pdf
-                pdf.create_pdf_from_html_content(
-                    html_text, html_images, file_path
-                )
+                    # Count text and image chunks for preview
+                    text_chunks = sum(1 for t, _ in ordered_chunks if t == 'text')
+                    image_chunks = sum(1 for t, _ in ordered_chunks if t == 'image')
+                    total_text_len = sum(len(c) for t, c in ordered_chunks if t == 'text' and isinstance(c, str))
 
-                # Success message
-                file_size = file_path.stat().st_size
-                size_str = files.get_file_size_human(file_size)
-                img_count = len(html_images)
-                console.print(f"[green]✅ Created PDF from HTML ({len(html_text)} chars, {img_count} images, {size_str}) at {file_path}[/green]")
-                raise typer.Exit()
+                    # Show preview if requested
+                    if preview:
+                        console.print(Panel(
+                            f"[cyan]HTML Content:[/cyan]\n"
+                            f"Text: {total_text_len} characters in {text_chunks} sections\n"
+                            f"Images: {image_chunks} embedded images",
+                            title=f"Preview: {final_filename}",
+                            expand=False
+                        ))
+                        if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+                            console.print("[yellow]Operation cancelled.[/yellow]")
+                            raise typer.Exit()
+
+                    # Create PDF from ordered HTML content
+                    pdf.create_pdf_from_html_ordered_content(
+                        ordered_chunks, file_path
+                    )
+
+                    # Success message
+                    file_size = file_path.stat().st_size
+                    size_str = files.get_file_size_human(file_size)
+                    console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
+                    raise typer.Exit()
 
         # Get both text and image content (may be None)
         content = clipboard.get_text()

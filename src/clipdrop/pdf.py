@@ -6,6 +6,7 @@ of the content as it was copied (WYCWYG - What You Copy is What You Get).
 """
 
 import io
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -371,15 +372,73 @@ def create_pdf_from_mixed(
     # Process each chunk in order
     for i, chunk in enumerate(chunks):
         if chunk.type == 'text':
-            # Add text content
+            # Process Markdown-formatted text
             text = chunk.content
             lines = text.split('\n')
+
             for line in lines:
-                if line.strip():
-                    escaped_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                    story.append(Paragraph(escaped_line, styles['Normal']))
-                else:
+                if not line.strip():
+                    # Empty line - add spacing
                     story.append(Spacer(1, 6))
+                    continue
+
+                # Escape HTML special characters first
+                escaped = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+                # Check for Markdown headers
+                if line.startswith('# '):
+                    # H1
+                    style = ParagraphStyle(
+                        'H1', parent=styles['Heading1'],
+                        fontSize=20, spaceAfter=12, spaceBefore=12,
+                        textColor=colors.HexColor('#000000'), bold=True
+                    )
+                    story.append(Paragraph(escaped[2:], style))
+                elif line.startswith('## '):
+                    # H2
+                    style = ParagraphStyle(
+                        'H2', parent=styles['Heading2'],
+                        fontSize=16, spaceAfter=10, spaceBefore=10
+                    )
+                    story.append(Paragraph(escaped[3:], style))
+                elif line.startswith('### '):
+                    # H3
+                    style = ParagraphStyle(
+                        'H3', parent=styles['Heading3'],
+                        fontSize=14, spaceAfter=8, spaceBefore=8
+                    )
+                    story.append(Paragraph(escaped[4:], style))
+                elif line.startswith('- ') or line.startswith('* '):
+                    # Bullet list
+                    bullet_style = ParagraphStyle(
+                        'Bullet', parent=styles['Normal'],
+                        leftIndent=20, bulletIndent=10
+                    )
+                    story.append(Paragraph('• ' + escaped[2:], bullet_style))
+                elif re.match(r'^\d+\. ', line):
+                    # Numbered list
+                    list_style = ParagraphStyle(
+                        'NumberedList', parent=styles['Normal'],
+                        leftIndent=20
+                    )
+                    story.append(Paragraph(escaped, list_style))
+                else:
+                    # Regular paragraph - process inline formatting
+                    formatted = escaped
+
+                    # Convert **bold** to <b>bold</b>
+                    formatted = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', formatted)
+                    # Convert *italic* or _italic_ to <i>italic</i>
+                    formatted = re.sub(r'\*([^*]+)\*', r'<i>\1</i>', formatted)
+                    formatted = re.sub(r'_([^_]+)_', r'<i>\1</i>', formatted)
+                    # Convert `code` to monospace
+                    formatted = re.sub(r'`([^`]+)`', r'<font name="Courier">\1</font>', formatted)
+                    # Handle markdown links [text](url) - just keep the text for now
+                    formatted = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', formatted)
+
+                    if formatted.strip():
+                        story.append(Paragraph(formatted, styles['Normal']))
+                        story.append(Spacer(1, 3))
 
         elif chunk.type == 'code':
             # Add code with syntax highlighting (basic)
@@ -607,5 +666,36 @@ def create_pdf_from_html_content(
             }))
 
     # Create PDF WITHOUT title (unless explicitly provided)
+    if chunks:
+        create_pdf_from_mixed(chunks, output_path, title=None, preserve_order=True)
+
+
+def create_pdf_from_html_ordered_content(
+    ordered_chunks: List[Tuple[str, Any]],
+    output_path: Path,
+    title: Optional[str] = None
+) -> None:
+    """
+    Create PDF from ordered HTML content chunks.
+
+    Args:
+        ordered_chunks: List of (type, content) tuples in document order
+        output_path: Path where PDF will be saved
+        title: Optional title for the PDF (not used by default)
+    """
+    # Convert to ContentChunk objects
+    chunks = []
+
+    for chunk_type, content in ordered_chunks:
+        if chunk_type == 'text':
+            chunks.append(ContentChunk('text', content))
+        elif chunk_type == 'image' and content:
+            chunks.append(ContentChunk('image', content, {
+                'width': content.width,
+                'height': content.height,
+                'mode': content.mode
+            }))
+
+    # Create PDF preserving the order
     if chunks:
         create_pdf_from_mixed(chunks, output_path, title=None, preserve_order=True)

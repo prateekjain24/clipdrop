@@ -1,6 +1,6 @@
 [project]
 name = "clipdrop"
-version = "0.4.0"
+version = "0.4.1"
 description = "Save clipboard content (text and images) to files with smart format detection"
 readme = "README.md"
 authors = [
@@ -35,6 +35,7 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "requests>=2.31.0",
     "lxml>=5.0.0",
+    "html2text>=2025.4.15",
 ]
 
 [project.urls]
