@@ -1,6 +1,30 @@
 # ClipDrop
 
+[![PyPI version](https://badge.fury.io/py/clipdrop.svg)](https://badge.fury.io/py/clipdrop)
+[![Python](https://img.shields.io/pypi/pyversions/clipdrop.svg)](https://pypi.org/project/clipdrop/)
+[![Downloads](https://pepy.tech/badge/clipdrop)](https://pepy.tech/project/clipdrop)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub issues](https://img.shields.io/github/issues/prateekjain24/clipdrop)](https://github.com/prateekjain24/clipdrop/issues)
+
 Save clipboard content to files with one command. ClipDrop automatically detects formats (JSON, Markdown, CSV), suggests appropriate extensions, prevents accidental overwrites, and provides rich visual feedback.
+
+## 📋 Problem We're Solving
+
+**The Pain:** macOS users face a cumbersome 6-step workflow to save clipboard content:
+1. Copy content to clipboard
+2. Open text editor or image application
+3. Paste content
+4. Navigate to save location
+5. Choose file name and format
+6. Click save
+
+**Our Solution:** Transform those 6 steps into **1 simple command** → `clipdrop filename`
+
+This workflow interruption is especially painful for:
+- **Developers** saving code snippets, API responses, or terminal outputs
+- **Product Managers** capturing screenshots and meeting notes
+- **Content Creators** storing drafts, research clips, and visual content
+- **Students** organizing research notes and screenshots
 
 ## Features
 
@@ -18,19 +42,30 @@ Save clipboard content to files with one command. ClipDrop automatically detects
 
 ## 📦 Installation
 
-### Using uv (Recommended)
+### Quick Install
 ```bash
-# Install from PyPI (when released)
-uv add clipdrop
-
-# Install from local checkout
-uv pip install -e .
+pip install clipdrop
 ```
 
-### Using pip
+### Alternative Installation Methods
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+# Using uv (fast Python package manager)
+uv add clipdrop
+
+# Using pipx (for isolated environments)
+pipx install clipdrop
+```
+
+### From Source
+```bash
+# Clone the repository
+git clone https://github.com/prateekjain24/clipdrop.git
+cd clipdrop
+
+# Install with uv
+uv pip install -e .
+
+# Or with pip
 pip install -e .
 ```
 
@@ -224,4 +259,4 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 
 ---
 
-**Current Version**: 0.1.0 | **Status**: Active Development 
+**Current Version**: 0.2.0 | **Status**: Available on PyPI 

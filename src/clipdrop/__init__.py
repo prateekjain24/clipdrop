@@ -1,1 +1,3 @@
-__version__ = "0.1.0"
+"""ClipDrop - Save clipboard content (text and images) to files with smart format detection."""
+
+__version__ = "0.2.0"
