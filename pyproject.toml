@@ -1,0 +1,46 @@
+[project]
+name = "clipdrop"
+version = "0.1.0"
+description = "Save clipboard content to files with smart format detection"
+readme = "README.md"
+authors = [
+    { name = "Prateek", email = "package@prateek.mozmail.com" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "typer>=0.17.4",
+    "rich>=14.1.0",
+    "pyperclip>=1.9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/prateekjain24/clipdrop"
+Issues = "https://github.com/prateekjain24/clipdrop/issues"
+
+[project.scripts]
+clipdrop = "clipdrop.main:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.12",
+    "black>=25.1.0",
+    "mypy>=1.18.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
