@@ -2,13 +2,20 @@
 
 import time
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import pyperclip
+
+try:
+    from PIL import Image, ImageGrab
+except ImportError:
+    Image = None
+    ImageGrab = None
 
 from clipdrop.exceptions import (
     ClipboardEmptyError,
     ClipboardAccessError,
-    ContentTooLargeError
+    ContentTooLargeError,
+    ImageClipboardError
 )
 
 # Cache for clipboard content to avoid repeated access
@@ -285,3 +292,130 @@ def copy_to_clipboard(content: str) -> None:
         _clipboard_cache['timestamp'] = time.time()
     except Exception as e:
         raise ClipboardAccessError("Cannot copy to clipboard", original_error=e)
+
+
+# Image clipboard operations
+_image_cache: Dict[str, Any] = {
+    'image': None,
+    'timestamp': 0,
+    'cache_duration': 0.2  # Cache for 200ms
+}
+
+
+def has_image() -> bool:
+    """
+    Check if clipboard contains an image.
+
+    Returns:
+        True if clipboard has an image, False otherwise
+    """
+    if ImageGrab is None:
+        return False
+
+    try:
+        # Check cache first
+        current_time = time.time()
+        if (_image_cache['image'] is not None and
+            current_time - _image_cache['timestamp'] < _image_cache['cache_duration']):
+            return True
+
+        # Try to grab image from clipboard
+        img = ImageGrab.grabclipboard()
+        if img is not None:
+            # Cache the image
+            _image_cache['image'] = img
+            _image_cache['timestamp'] = current_time
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def get_image() -> Optional['Image.Image']:
+    """
+    Get image from clipboard.
+
+    Returns:
+        PIL Image object or None if no image
+
+    Raises:
+        ImageClipboardError: If there's an error accessing the image
+    """
+    if ImageGrab is None:
+        raise ImageClipboardError("Pillow is not installed")
+
+    try:
+        # Check cache first
+        current_time = time.time()
+        if (_image_cache['image'] is not None and
+            current_time - _image_cache['timestamp'] < _image_cache['cache_duration']):
+            return _image_cache['image']
+
+        # Get fresh image from clipboard
+        img = ImageGrab.grabclipboard()
+
+        if img is not None:
+            # Cache the image
+            _image_cache['image'] = img
+            _image_cache['timestamp'] = current_time
+
+        return img
+    except Exception as e:
+        raise ImageClipboardError("Failed to get image from clipboard", original_error=e)
+
+
+def get_image_info() -> Optional[Dict[str, Any]]:
+    """
+    Get information about the image in clipboard.
+
+    Returns:
+        Dictionary with image info (width, height, mode, format) or None
+    """
+    img = get_image()
+    if img is None:
+        return None
+
+    return {
+        'width': img.width,
+        'height': img.height,
+        'mode': img.mode,  # RGB, RGBA, etc.
+        'format': img.format,  # PNG, JPEG, etc. (may be None)
+        'size_pixels': img.width * img.height,
+        'has_transparency': img.mode in ('RGBA', 'LA', 'P')
+    }
+
+
+def get_content_type() -> str:
+    """
+    Determine what type of content is in the clipboard.
+
+    Returns:
+        'image', 'text', 'both', or 'none'
+    """
+    has_img = has_image()
+    has_txt = has_content()
+
+    if has_img and has_txt:
+        return 'both'
+    elif has_img:
+        return 'image'
+    elif has_txt:
+        return 'text'
+    else:
+        return 'none'
+
+
+def has_both_content() -> bool:
+    """
+    Check if clipboard has both text and image content.
+
+    Returns:
+        True if both types exist, False otherwise
+    """
+    return has_image() and has_content()
+
+
+def clear_image_cache() -> None:
+    """Clear the image cache."""
+    _image_cache['image'] = None
+    _image_cache['timestamp'] = 0

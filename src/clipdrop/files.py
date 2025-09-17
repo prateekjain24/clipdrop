@@ -175,6 +175,21 @@ def validate_filename(filename: str) -> bool:
     return True
 
 
+def is_image_extension(filename: str) -> bool:
+    """
+    Check if filename has an image extension.
+
+    Args:
+        filename: Filename to check
+
+    Returns:
+        True if has image extension, False otherwise
+    """
+    image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp', '.ico'}
+    path = Path(filename)
+    return path.suffix.lower() in image_extensions
+
+
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize filename by removing/replacing invalid characters.

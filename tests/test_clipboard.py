@@ -105,12 +105,12 @@ class TestGetContentType:
         """Test detecting empty clipboard."""
         mock_clipboard['set_content']("")
 
-        assert clipboard.get_content_type() == 'empty'
+        assert clipboard.get_content_type() == 'none'
 
     def test_content_type_with_error(self):
         """Test content type when clipboard access fails."""
         with patch('pyperclip.paste', side_effect=Exception("Error")):
-            assert clipboard.get_content_type() == 'empty'
+            assert clipboard.get_content_type() == 'none'
 
 
 class TestGetContentPreview:

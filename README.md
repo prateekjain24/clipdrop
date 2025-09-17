@@ -4,12 +4,15 @@ Save clipboard content to files with one command. ClipDrop automatically detects
 
 ## Features
 
-- **Smart Format Detection**: Automatically detects JSON, Markdown, and CSV content
+- **Image Support**: Save images from clipboard (PNG, JPG, GIF, BMP, WebP) 📷
+- **Smart Format Detection**: Automatically detects JSON, Markdown, CSV, and image formats
 - **Extension Auto-Suggestion**: No extension? ClipDrop suggests the right one
+- **Content Priority**: Intelligently handles mixed content (image + text)
 - **Safe by Default**: Interactive overwrite protection (bypass with `--force`)
-- **Preview Mode**: See content before saving with syntax highlighting
+- **Preview Mode**: See content before saving (text with syntax highlighting, images with dimensions)
 - **Rich CLI**: Beautiful, informative output with colors and icons
 - **Performance**: Caches clipboard content for speed (<200ms operations)
+- **Image Optimization**: Automatic compression for PNG/JPEG formats
 - **Large File Support**: Handles files up to 100MB with size warnings
 - **Unicode Support**: Full international character support
 
@@ -36,13 +39,15 @@ pip install -e .
 ### Basic Usage
 ```bash
 # Save clipboard to file (auto-detects format)
-clipdrop notes              # → notes.txt
+clipdrop notes              # → notes.txt (text)
+clipdrop screenshot         # → screenshot.png (image)
 clipdrop data               # → data.json (if JSON detected)
 clipdrop readme             # → readme.md (if Markdown detected)
 
 # Specify extension explicitly
-clipdrop report.pdf
-clipdrop config.yaml
+clipdrop photo.jpg          # Save as JPEG
+clipdrop diagram.png        # Save as PNG
+clipdrop config.yaml        # Save as YAML
 ```
 
 ### Options
@@ -51,9 +56,13 @@ clipdrop config.yaml
 clipdrop notes.txt --force
 clipdrop notes.txt -f
 
-# Preview content before saving (with syntax highlighting)
+# Preview content before saving (with syntax highlighting for text, dimensions for images)
 clipdrop data.json --preview
-clipdrop data.json -p
+clipdrop screenshot.png -p
+
+# Force text mode when both image and text are in clipboard
+clipdrop notes.txt --text
+clipdrop notes.txt -t
 
 # Show version
 clipdrop --version
@@ -84,6 +93,21 @@ clipdrop config
 clipdrop script.py --preview
 # Shows colored preview with line numbers
 # Save this content? [Y/n]:
+```
+
+#### Save copied image
+```bash
+# Copy an image (screenshot, etc.), then:
+clipdrop screenshot
+# 📷 Auto-detected image format. Saving as: screenshot.png
+# ✅ Saved image (1920x1080, 245.3 KB) to screenshot.png
+```
+
+#### Handle mixed content
+```bash
+# When both image and text are in clipboard:
+clipdrop content          # Saves image by default
+clipdrop content --text   # Forces text mode
 ```
 
 ## 🔧 Development
@@ -124,29 +148,29 @@ mypy src
 
 ## Project Status
 
-### Completed Features (Sprint 1 & 2) ✅
+### Completed Features (Sprints 1-3) ✅
 - Project setup with uv package manager
 - CLI skeleton with Typer
-- Clipboard text reading with caching
+- Clipboard text and image reading with caching
 - File writing with atomic operations
-- Extension detection for common formats
+- Extension detection for text and image formats
 - Overwrite protection
 - Rich success/error messages
 - JSON, Markdown, CSV format detection
 - Path validation and sanitization
-- Comprehensive test suite (64+ tests)
-- Preview mode with syntax highlighting
+- **Image clipboard support** (PNG, JPG, GIF, BMP, WebP)
+- **Content priority logic** (image > text, with --text override)
+- **Image optimization** with format-specific compression
+- Comprehensive test suite (89 tests)
+- Preview mode with syntax highlighting (text) and dimensions (images)
 
 ### Enhanced Features 🌟
 - Custom exception hierarchy for better error handling
-- Advanced clipboard operations (stats, monitoring, binary detection)
+- Advanced clipboard operations (stats, monitoring, binary detection, images)
 - Enhanced file operations (atomic writes, backups, compression)
+- Image format conversion (RGBA→RGB for JPEG)
 - Performance optimizations with content caching
-
-### Upcoming Features (Sprint 3) 🔄
-- Image clipboard support (PNG, JPG)
-- Content priority logic (image vs text)
-- Force text mode flag
+- Smart format detection for images and text
 
 ### Future Roadmap (Sprint 4) 🚧
 - PyPI package release
@@ -161,11 +185,15 @@ clipdrop/
 ├── src/clipdrop/
 │   ├── __init__.py         # Version management
 │   ├── main.py            # CLI entry point
-│   ├── clipboard.py       # Clipboard operations
+│   ├── clipboard.py       # Clipboard operations (text + images)
 │   ├── files.py           # File operations
+│   ├── images.py          # Image-specific operations
 │   ├── detect.py          # Format detection
 │   └── exceptions.py      # Custom exceptions
-├── tests/                 # Comprehensive test suite
+├── tests/                 # Comprehensive test suite (89 tests)
+│   ├── test_clipboard.py  # 27 tests
+│   ├── test_files.py      # 37 tests
+│   └── test_images.py     # 25 tests
 ├── pyproject.toml         # Modern Python packaging
 └── README.md              # This file
 ```
@@ -178,6 +206,7 @@ clipdrop/
   - typer[all] >= 0.17.4
   - rich >= 14.1.0
   - pyperclip >= 1.9.0
+  - Pillow >= 11.3.0
 
 ## 📄 License
 
@@ -187,11 +216,7 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📚 Documentation
 
-- [Product Requirements](requirement.md) - Original PRD
-- [Implementation Plan](IMP.md) - Detailed implementation status
-- [API Documentation](https://github.com/prateekjain24/clipdrop/wiki) - Coming soon
 
 ## Issues
 
@@ -199,4 +224,4 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 
 ---
 
-**Current Version**: 0.1.0 | **Status**: Active Development | **Sprint**: 2/4 Complete
+**Current Version**: 0.1.0 | **Status**: Active Development 

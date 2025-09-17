@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Generator, Any
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
+from PIL import Image
+import io
 
 
 @pytest.fixture
@@ -207,3 +209,79 @@ def clean_imports():
         del sys.modules[mod]
     yield
     # Cleanup after test if needed
+
+
+# Image-related fixtures
+@pytest.fixture
+def sample_image():
+    """Create a sample PIL Image for testing."""
+    img = Image.new('RGB', (100, 100), color='red')
+    return img
+
+
+@pytest.fixture
+def sample_image_with_transparency():
+    """Create a sample PIL Image with transparency."""
+    img = Image.new('RGBA', (100, 100), color=(255, 0, 0, 128))
+    return img
+
+
+@pytest.fixture
+def mock_image_clipboard():
+    """Mock image clipboard for testing."""
+    # Clear image cache before and after tests
+    import clipdrop.clipboard as cb
+
+    # Save original cache settings
+    original_cache = cb._image_cache.copy() if hasattr(cb, '_image_cache') else {}
+
+    # Clear cache before test
+    if hasattr(cb, '_image_cache'):
+        cb._image_cache['image'] = None
+        cb._image_cache['timestamp'] = 0
+
+    with patch('PIL.ImageGrab.grabclipboard') as mock_grab:
+        # Use a container to hold the image so we can modify it
+        clipboard_state = {'image': None}
+
+        def grab_side_effect():
+            return clipboard_state['image']
+
+        def set_image(img):
+            clipboard_state['image'] = img
+            # Also clear the cache to ensure fresh read
+            if hasattr(cb, '_image_cache'):
+                cb._image_cache['image'] = None
+                cb._image_cache['timestamp'] = 0
+
+        mock_grab.side_effect = grab_side_effect
+
+        yield {
+            'grab': mock_grab,
+            'set_image': set_image,
+            'get_image': lambda: clipboard_state['image']
+        }
+
+    # Restore original cache after test
+    if hasattr(cb, '_image_cache'):
+        cb._image_cache.update(original_cache)
+
+
+@pytest.fixture
+def sample_image_bytes():
+    """Get bytes representation of a sample image."""
+    img = Image.new('RGB', (50, 50), color='blue')
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    return buffer.getvalue()
+
+
+@pytest.fixture
+def various_format_images():
+    """Create images that would be saved in different formats."""
+    return {
+        'rgb': Image.new('RGB', (100, 100), color='red'),
+        'rgba': Image.new('RGBA', (100, 100), color=(0, 255, 0, 128)),
+        'grayscale': Image.new('L', (100, 100), color=128),
+        'palette': Image.new('P', (100, 100))
+    }
