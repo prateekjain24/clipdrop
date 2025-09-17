@@ -10,25 +10,19 @@ from rich.prompt import Confirm
 from clipdrop import __version__
 from clipdrop import clipboard, detect, files
 
-app = typer.Typer(
-    name="clipdrop",
-    help="Save clipboard content to files with smart format detection",
-    add_completion=False,
-)
-
 console = Console()
 
 
 def version_callback(value: bool):
+    """Handle --version flag."""
     if value:
         console.print(f"[cyan]clipdrop version {__version__}[/cyan]")
         raise typer.Exit()
 
 
-@app.command()
 def main(
-    filename: str = typer.Argument(
-        ...,
+    filename: Optional[str] = typer.Argument(
+        None,
         help="Filename to save clipboard content to (with or without extension)"
     ),
     force: bool = typer.Option(
@@ -52,13 +46,20 @@ def main(
     ),
 ):
     """
-    Save clipboard content to a file.
+    Save clipboard content to files with smart format detection.
 
     Examples:
         clipdrop notes       # Saves to notes.txt
         clipdrop data.json   # Saves as JSON if valid
         clipdrop image.png   # Saves image from clipboard
     """
+    # If no filename is provided, show error
+    if filename is None:
+        console.print("[red]Error: Missing argument 'FILENAME'.[/red]")
+        console.print("\n[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
+        console.print("\nTry 'clipdrop --help' for more information.")
+        raise typer.Exit(1)
+
     try:
         # Check if clipboard has content
         if not clipboard.has_content():
@@ -142,6 +143,16 @@ def main(
         console.print(f"[red]❌ Error:[/red] {e}")
         raise typer.Exit(1)
 
+
+# Create the Typer app
+app = typer.Typer(
+    name="clipdrop",
+    help="Save clipboard content to files with smart format detection",
+    add_completion=False,
+)
+
+# Register main function as the only command
+app.command()(main)
 
 if __name__ == "__main__":
     app()
