@@ -1,7 +1,25 @@
 """Clipboard operations module for ClipDrop."""
 
-from typing import Optional
+import time
+import re
+from typing import Optional, Dict, Any
 import pyperclip
+
+from clipdrop.exceptions import (
+    ClipboardEmptyError,
+    ClipboardAccessError,
+    ContentTooLargeError
+)
+
+# Cache for clipboard content to avoid repeated access
+_clipboard_cache: Dict[str, Any] = {
+    'content': None,
+    'timestamp': 0,
+    'cache_duration': 0.1  # Cache for 100ms
+}
+
+# Maximum content size (100MB)
+MAX_CONTENT_SIZE = 100 * 1024 * 1024
 
 
 def get_text() -> Optional[str]:
@@ -10,14 +28,61 @@ def get_text() -> Optional[str]:
 
     Returns:
         Text content from clipboard or None if empty/error
+
+    Raises:
+        ContentTooLargeError: If content exceeds size limit
     """
     try:
+        # Check cache first
+        current_time = time.time()
+        if (_clipboard_cache['content'] is not None and
+            current_time - _clipboard_cache['timestamp'] < _clipboard_cache['cache_duration']):
+            return _clipboard_cache['content']
+
         content = pyperclip.paste()
+
+        # Check size limit
+        if content and len(content.encode('utf-8')) > MAX_CONTENT_SIZE:
+            raise ContentTooLargeError(
+                len(content.encode('utf-8')),
+                MAX_CONTENT_SIZE
+            )
+
+        # Update cache
+        _clipboard_cache['content'] = content if content else None
+        _clipboard_cache['timestamp'] = current_time
+
         # pyperclip returns empty string for empty clipboard
         return content if content else None
-    except Exception:
+    except ContentTooLargeError:
+        raise
+    except Exception as e:
         # Handle any clipboard access errors
         return None
+
+
+def get_clipboard_text() -> str:
+    """
+    Get text content from clipboard (alias for consistency).
+
+    Returns:
+        Text content from clipboard
+
+    Raises:
+        ClipboardEmptyError: If clipboard is empty
+        ClipboardAccessError: If clipboard cannot be accessed
+    """
+    try:
+        content = get_text()
+        if content is None:
+            raise ClipboardEmptyError()
+        return content
+    except ContentTooLargeError:
+        raise
+    except Exception as e:
+        if isinstance(e, ClipboardEmptyError):
+            raise
+        raise ClipboardAccessError(original_error=e)
 
 
 def has_content() -> bool:
@@ -68,3 +133,155 @@ def get_content_preview(max_chars: int = 100) -> Optional[str]:
 
     # Add ellipsis for truncated content
     return content[:max_chars] + "..."
+
+
+def get_clipboard_stats() -> Dict[str, Any]:
+    """
+    Get statistics about clipboard content.
+
+    Returns:
+        Dictionary with content statistics:
+        - size_bytes: Size in bytes
+        - size_human: Human-readable size
+        - lines: Number of lines
+        - words: Number of words
+        - chars: Number of characters
+        - is_empty: Whether clipboard is empty
+    """
+    content = get_text()
+
+    if content is None:
+        return {
+            'size_bytes': 0,
+            'size_human': '0 B',
+            'lines': 0,
+            'words': 0,
+            'chars': 0,
+            'is_empty': True
+        }
+
+    size_bytes = len(content.encode('utf-8'))
+
+    # Calculate human-readable size
+    size_human = f"{size_bytes} B"
+    for unit in ['KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            break
+        size_bytes_display = size_bytes / 1024.0
+        if size_bytes_display < 1024.0:
+            size_human = f"{size_bytes_display:.1f} {unit}"
+            break
+
+    return {
+        'size_bytes': size_bytes,
+        'size_human': size_human,
+        'lines': content.count('\n') + 1 if content else 0,
+        'words': len(content.split()) if content else 0,
+        'chars': len(content),
+        'is_empty': False
+    }
+
+
+def is_clipboard_binary() -> bool:
+    """
+    Check if clipboard content might be binary data.
+
+    Returns:
+        True if content appears to be binary, False otherwise
+    """
+    content = get_text()
+    if content is None:
+        return False
+
+    # Check for null bytes or high proportion of non-printable characters
+    if '\x00' in content:
+        return True
+
+    # Check for non-printable characters (excluding common whitespace)
+    non_printable_count = 0
+    sample_size = min(1000, len(content))  # Check first 1000 chars
+
+    for char in content[:sample_size]:
+        if not (char.isprintable() or char in '\n\r\t'):
+            non_printable_count += 1
+
+    # If more than 10% non-printable, likely binary
+    return non_printable_count > sample_size * 0.1
+
+
+def wait_for_change(timeout: float = 10.0, poll_interval: float = 0.1) -> Optional[str]:
+    """
+    Wait for clipboard content to change.
+
+    Args:
+        timeout: Maximum time to wait in seconds
+        poll_interval: How often to check clipboard in seconds
+
+    Returns:
+        New clipboard content or None if timeout
+
+    Raises:
+        ClipboardAccessError: If clipboard cannot be accessed
+    """
+    try:
+        # Get initial content
+        initial_content = get_text()
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            time.sleep(poll_interval)
+
+            # Clear cache to force fresh read
+            _clipboard_cache['content'] = None
+            _clipboard_cache['timestamp'] = 0
+
+            current_content = get_text()
+
+            if current_content != initial_content:
+                return current_content
+
+        return None  # Timeout
+    except Exception as e:
+        raise ClipboardAccessError("Error monitoring clipboard", original_error=e)
+
+
+def clear_clipboard() -> None:
+    """
+    Clear clipboard content.
+
+    Raises:
+        ClipboardAccessError: If clipboard cannot be cleared
+    """
+    try:
+        pyperclip.copy("")
+        # Clear cache
+        _clipboard_cache['content'] = None
+        _clipboard_cache['timestamp'] = 0
+    except Exception as e:
+        raise ClipboardAccessError("Cannot clear clipboard", original_error=e)
+
+
+def copy_to_clipboard(content: str) -> None:
+    """
+    Copy content to clipboard.
+
+    Args:
+        content: Text to copy to clipboard
+
+    Raises:
+        ClipboardAccessError: If content cannot be copied
+        ContentTooLargeError: If content exceeds size limit
+    """
+    if len(content.encode('utf-8')) > MAX_CONTENT_SIZE:
+        raise ContentTooLargeError(
+            len(content.encode('utf-8')),
+            MAX_CONTENT_SIZE
+        )
+
+    try:
+        pyperclip.copy(content)
+        # Update cache
+        _clipboard_cache['content'] = content
+        _clipboard_cache['timestamp'] = time.time()
+    except Exception as e:
+        raise ClipboardAccessError("Cannot copy to clipboard", original_error=e)
