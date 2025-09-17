@@ -13,10 +13,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
 from reportlab.platypus import Image as RLImage
 
 from .exceptions import FileWriteError
@@ -699,3 +700,308 @@ def create_pdf_from_html_ordered_content(
     # Create PDF preserving the order
     if chunks:
         create_pdf_from_mixed(chunks, output_path, title=None, preserve_order=True)
+
+
+def create_pdf_from_enhanced_html(
+    enhanced_chunks: List[Tuple[str, Any, Dict]],
+    output_path: Path,
+    title: Optional[str] = None,
+    educational_mode: bool = True
+) -> None:
+    """
+    Create PDF from enhanced HTML content with better formatting.
+    Optimized for educational and cognitive support content.
+
+    Args:
+        enhanced_chunks: List of (type, content, metadata) tuples
+        output_path: Path where PDF will be saved
+        title: Optional title for the PDF
+        educational_mode: Enable educational content optimizations
+    """
+    doc = SimpleDocTemplate(
+        str(output_path),
+        pagesize=letter,
+        rightMargin=72,
+        leftMargin=72,
+        topMargin=72,
+        bottomMargin=72,
+    )
+
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Create custom styles for educational content
+    custom_styles = {
+        'H1': ParagraphStyle(
+            'CustomH1',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1a1a1a'),
+            spaceAfter=20,
+            spaceBefore=10,
+            keepWithNext=True,
+        ),
+        'H2': ParagraphStyle(
+            'CustomH2',
+            parent=styles['Heading2'],
+            fontSize=20,
+            textColor=colors.HexColor('#2a2a2a'),
+            spaceAfter=16,
+            spaceBefore=8,
+            keepWithNext=True,
+        ),
+        'H3': ParagraphStyle(
+            'CustomH3',
+            parent=styles['Heading3'],
+            fontSize=16,
+            textColor=colors.HexColor('#3a3a3a'),
+            spaceAfter=12,
+            spaceBefore=6,
+            keepWithNext=True,
+        ),
+        'H4': ParagraphStyle(
+            'CustomH4',
+            parent=styles['Heading4'],
+            fontSize=14,
+            textColor=colors.HexColor('#4a4a4a'),
+            spaceAfter=10,
+            spaceBefore=4,
+            keepWithNext=True,
+        ),
+        'Body': ParagraphStyle(
+            'Body',
+            parent=styles['Normal'],
+            fontSize=11,
+            leading=14,
+            alignment=TA_JUSTIFY if educational_mode else TA_LEFT,
+            spaceAfter=8,
+        ),
+        'Callout': ParagraphStyle(
+            'Callout',
+            parent=styles['Normal'],
+            fontSize=11,
+            leftIndent=20,
+            rightIndent=20,
+            backgroundColor=colors.HexColor('#fff3cd'),
+            borderColor=colors.HexColor('#ffc107'),
+            borderWidth=1,
+            borderPadding=10,
+            spaceAfter=12,
+            spaceBefore=12,
+        ),
+        'Blockquote': ParagraphStyle(
+            'Blockquote',
+            parent=styles['Normal'],
+            fontSize=10,
+            leftIndent=30,
+            rightIndent=30,
+            textColor=colors.HexColor('#555555'),
+            fontName='Helvetica-Oblique',
+            spaceAfter=10,
+            spaceBefore=10,
+        ),
+        'CodeBlock': ParagraphStyle(
+            'CodeBlock',
+            parent=styles['Code'],
+            fontSize=9,
+            backgroundColor=colors.HexColor('#f5f5f5'),
+            borderColor=colors.HexColor('#dddddd'),
+            borderWidth=1,
+            borderPadding=8,
+            leftIndent=10,
+            rightIndent=10,
+            spaceAfter=10,
+            spaceBefore=10,
+        ),
+        'ListItem': ParagraphStyle(
+            'ListItem',
+            parent=styles['Normal'],
+            fontSize=11,
+            leftIndent=30,
+            bulletIndent=20,
+            spaceAfter=4,
+        ),
+    }
+
+    # Add title if provided
+    if title:
+        title_style = ParagraphStyle(
+            'DocumentTitle',
+            parent=styles['Title'],
+            fontSize=28,
+            textColor=colors.HexColor('#000000'),
+            spaceAfter=30,
+            alignment=TA_CENTER,
+        )
+        story.append(Paragraph(title, title_style))
+        story.append(Spacer(1, 20))
+
+    # Process enhanced chunks
+    for i, (chunk_type, content, metadata) in enumerate(enhanced_chunks):
+        depth = metadata.get('depth', 0)
+
+        if chunk_type == 'heading':
+            level = metadata.get('level', 1)
+            style_name = f'H{min(level, 4)}'  # Cap at H4
+            style = custom_styles[style_name]
+
+            # Escape HTML characters
+            text = str(content).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(text, style))
+
+        elif chunk_type == 'paragraph':
+            # Handle emphasized or highlighted paragraphs
+            style = custom_styles['Body']
+            text = str(content).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+            if metadata.get('highlight'):
+                text = f'<b><font color="#ff6b6b">{text}</font></b>'
+            elif metadata.get('emphasis') == 'strong':
+                text = f'<b>{text}</b>'
+            elif metadata.get('emphasis') == 'italic':
+                text = f'<i>{text}</i>'
+
+            story.append(Paragraph(text, style))
+
+        elif chunk_type == 'list':
+            list_type = metadata.get('type', 'unordered')
+            items = content if isinstance(content, list) else [content]
+
+            for idx, item in enumerate(items):
+                if list_type == 'ordered':
+                    bullet_text = f"{idx + 1}. "
+                else:
+                    bullet_text = "• "
+
+                text = str(item).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                full_text = bullet_text + text
+                story.append(Paragraph(full_text, custom_styles['ListItem']))
+
+            story.append(Spacer(1, 6))
+
+        elif chunk_type == 'blockquote':
+            text = str(content).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(f'"{text}"', custom_styles['Blockquote']))
+
+        elif chunk_type == 'code':
+            # Preserve code formatting
+            lines = str(content).split('\n')
+            for line in lines:
+                escaped_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;') or ' '
+                story.append(Paragraph(escaped_line, custom_styles['CodeBlock']))
+
+        elif chunk_type == 'special':
+            # Callouts and special highlighted content
+            text = str(content).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+            if metadata.get('type') == 'callout':
+                story.append(Paragraph(f'<b>Note:</b> {text}', custom_styles['Callout']))
+            elif metadata.get('highlight'):
+                story.append(Paragraph(f'<font color="#ff6b6b"><b>{text}</b></font>', custom_styles['Body']))
+            else:
+                story.append(Paragraph(text, custom_styles['Body']))
+
+        elif chunk_type == 'table':
+            # Create table with proper formatting
+            rows = content if isinstance(content, list) else [[content]]
+
+            if rows:
+                # Create table
+                table = Table(rows)
+
+                # Apply table style
+                table_style = TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f0f0f0')),  # Header row
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 11),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cccccc')),
+                    ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 10),
+                    ('PADDING', (0, 0), (-1, -1), 6),
+                ])
+
+                # Alternate row coloring for better readability
+                for i in range(1, len(rows)):
+                    if i % 2 == 0:
+                        table_style.add('BACKGROUND', (0, i), (-1, i), colors.HexColor('#f9f9f9'))
+
+                table.setStyle(table_style)
+                story.append(table)
+                story.append(Spacer(1, 12))
+
+        elif chunk_type == 'image':
+            # Handle images
+            if content:
+                try:
+                    # Calculate image size
+                    page_width = letter[0] - 144  # Account for margins
+                    max_height = letter[1] * 0.5  # Max 50% of page height
+
+                    if hasattr(content, 'width') and hasattr(content, 'height'):
+                        img_width = content.width
+                        img_height = content.height
+
+                        # Scale to fit
+                        width_scale = page_width / img_width if img_width > page_width else 1
+                        height_scale = max_height / img_height if img_height > max_height else 1
+                        scale = min(width_scale, height_scale, 1)
+
+                        display_width = img_width * scale
+                        display_height = img_height * scale
+
+                        # Convert image for PDF
+                        img_buffer = io.BytesIO()
+                        if content.mode == 'RGBA':
+                            rgb_image = Image.new('RGB', content.size, (255, 255, 255))
+                            rgb_image.paste(content, mask=content.split()[3] if len(content.split()) > 3 else None)
+                            rgb_image.save(img_buffer, format='PNG')
+                        else:
+                            content.save(img_buffer, format='PNG')
+
+                        img_buffer.seek(0)
+
+                        # Add image to story
+                        rl_image = RLImage(img_buffer, width=display_width, height=display_height)
+                        story.append(rl_image)
+
+                        # Add caption if available
+                        alt_text = metadata.get('alt', '')
+                        if alt_text:
+                            caption_style = ParagraphStyle(
+                                'Caption',
+                                parent=styles['Normal'],
+                                fontSize=9,
+                                textColor=colors.grey,
+                                alignment=TA_CENTER,
+                                spaceAfter=10,
+                            )
+                            story.append(Paragraph(f'<i>{alt_text}</i>', caption_style))
+                        else:
+                            story.append(Spacer(1, 10))
+                except Exception:
+                    # Skip problematic images
+                    pass
+
+        elif chunk_type == 'text':
+            # Plain text
+            text = str(content).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            if text.strip():
+                story.append(Paragraph(text, custom_styles['Body']))
+
+        # Add appropriate spacing
+        if i < len(enhanced_chunks) - 1:
+            next_type = enhanced_chunks[i + 1][0] if i + 1 < len(enhanced_chunks) else None
+            if chunk_type in ['heading', 'table'] or next_type == 'heading':
+                story.append(Spacer(1, 12))
+            else:
+                story.append(Spacer(1, 6))
+
+    # Build the PDF
+    try:
+        doc.build(story)
+    except Exception as e:
+        raise FileWriteError(f"Failed to create enhanced PDF: {str(e)}")

@@ -44,6 +44,11 @@ def main(
         "-t",
         help="Prioritize text over images when both exist in clipboard. Useful when you want the text instead of a screenshot"
     ),
+    educational: bool = typer.Option(
+        True,
+        "--educational/--no-educational",
+        help="Enable educational content optimizations for better formatting in PDFs (justified text, callout boxes, enhanced spacing)"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -117,53 +122,115 @@ def main(
             # Try to get ordered chunks first
             html_content = html_parser.get_html_from_clipboard()
             if html_content:
-                # Use the new ordered parsing
-                ordered_chunks = html_parser.parse_html_content_ordered(html_content)
+                # Try enhanced parsing first for better structure preservation
+                try:
+                    enhanced_chunks = html_parser.parse_html_content_enhanced(html_content)
+                    use_enhanced = len(enhanced_chunks) > 0
+                except Exception:
+                    # Fall back to standard parsing
+                    enhanced_chunks = None
+                    use_enhanced = False
 
-                if ordered_chunks:
+                if use_enhanced and enhanced_chunks:
+                    # Use enhanced PDF generation
                     file_path = Path(filename)
 
                     # Add .pdf extension if not present
                     if not file_path.suffix:
                         final_filename = f"{filename}.pdf"
-                        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                        console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
                     elif file_path.suffix.lower() != '.pdf':
                         final_filename = f"{file_path.stem}.pdf"
-                        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                        console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
                     else:
                         final_filename = filename
-                        console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
+                        console.print("[cyan]📄 Creating enhanced PDF from HTML content...[/cyan]")
 
                     file_path = Path(final_filename)
 
-                    # Count text and image chunks for preview
-                    text_chunks = sum(1 for t, _ in ordered_chunks if t == 'text')
-                    image_chunks = sum(1 for t, _ in ordered_chunks if t == 'image')
-                    total_text_len = sum(len(c) for t, c in ordered_chunks if t == 'text' and isinstance(c, str))
+                    # Count different content types for preview
+                    content_counts = {}
+                    total_text_len = 0
+                    for chunk_type, content, metadata in enhanced_chunks:
+                        content_counts[chunk_type] = content_counts.get(chunk_type, 0) + 1
+                        if chunk_type in ['text', 'paragraph', 'heading']:
+                            total_text_len += len(str(content))
 
                     # Show preview if requested
                     if preview:
+                        preview_lines = [f"[cyan]HTML Content (Enhanced):[/cyan]"]
+                        preview_lines.append(f"Text: {total_text_len} characters")
+                        for content_type, count in content_counts.items():
+                            preview_lines.append(f"{content_type.title()}: {count} element(s)")
+
                         console.print(Panel(
-                            f"[cyan]HTML Content:[/cyan]\n"
-                            f"Text: {total_text_len} characters in {text_chunks} sections\n"
-                            f"Images: {image_chunks} embedded images",
+                            "\n".join(preview_lines),
                             title=f"Preview: {final_filename}",
                             expand=False
                         ))
-                        if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+                        if not Confirm.ask("[cyan]Create this enhanced PDF?[/cyan]", default=True):
                             console.print("[yellow]Operation cancelled.[/yellow]")
                             raise typer.Exit()
 
-                    # Create PDF from ordered HTML content
-                    pdf.create_pdf_from_html_ordered_content(
-                        ordered_chunks, file_path
+                    # Create enhanced PDF
+                    pdf.create_pdf_from_enhanced_html(
+                        enhanced_chunks, file_path, educational_mode=educational
                     )
 
                     # Success message
                     file_size = file_path.stat().st_size
                     size_str = files.get_file_size_human(file_size)
-                    console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
+                    console.print(f"[green]✅ Created enhanced PDF ({total_text_len} chars, {len(content_counts)} content types, {size_str}) at {file_path}[/green]")
                     raise typer.Exit()
+
+                else:
+                    # Fall back to standard ordered parsing
+                    ordered_chunks = html_parser.parse_html_content_ordered(html_content)
+
+                    if ordered_chunks:
+                        file_path = Path(filename)
+
+                        # Add .pdf extension if not present
+                        if not file_path.suffix:
+                            final_filename = f"{filename}.pdf"
+                            console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                        elif file_path.suffix.lower() != '.pdf':
+                            final_filename = f"{file_path.stem}.pdf"
+                            console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                        else:
+                            final_filename = filename
+                            console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
+
+                        file_path = Path(final_filename)
+
+                        # Count text and image chunks for preview
+                        text_chunks = sum(1 for t, _ in ordered_chunks if t == 'text')
+                        image_chunks = sum(1 for t, _ in ordered_chunks if t == 'image')
+                        total_text_len = sum(len(c) for t, c in ordered_chunks if t == 'text' and isinstance(c, str))
+
+                        # Show preview if requested
+                        if preview:
+                            console.print(Panel(
+                                f"[cyan]HTML Content:[/cyan]\n"
+                                f"Text: {total_text_len} characters in {text_chunks} sections\n"
+                                f"Images: {image_chunks} embedded images",
+                                title=f"Preview: {final_filename}",
+                                expand=False
+                            ))
+                            if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+                                console.print("[yellow]Operation cancelled.[/yellow]")
+                                raise typer.Exit()
+
+                        # Create PDF from ordered HTML content
+                        pdf.create_pdf_from_html_ordered_content(
+                            ordered_chunks, file_path
+                        )
+
+                        # Success message
+                        file_size = file_path.stat().st_size
+                        size_str = files.get_file_size_human(file_size)
+                        console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
+                        raise typer.Exit()
 
         # Get both text and image content (may be None)
         content = clipboard.get_text()

@@ -8,11 +8,11 @@ import base64
 import io
 import re
 import subprocess
-from typing import List, Optional, Tuple, Any
+from typing import List, Optional, Tuple, Any, Dict
 
 import html2text
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from PIL import Image
 
 
@@ -339,3 +339,162 @@ def get_html_with_images() -> Optional[Tuple[str, str, List[Image.Image]]]:
 
     text, images = extract_content_from_html(html)
     return html, text, images
+
+
+def parse_html_content_enhanced(html: str) -> List[Tuple[str, Any, Dict]]:
+    """
+    Enhanced HTML parsing that preserves more structure and formatting.
+    Specifically optimized for educational content.
+
+    Args:
+        html: HTML string to parse
+
+    Returns:
+        List of (type, content, metadata) tuples preserving document structure
+    """
+    soup = BeautifulSoup(html, 'lxml')
+
+    # Remove script and style elements
+    for script in soup(["script", "style"]):
+        script.decompose()
+
+    chunks = []
+
+    def process_element(element, depth=0):
+        """Recursively process HTML elements preserving structure."""
+        if isinstance(element, NavigableString):
+            text = str(element).strip()
+            if text:
+                return [('text', text, {'depth': depth})]
+            return []
+
+        if not isinstance(element, Tag):
+            return []
+
+        element_chunks = []
+        tag_name = element.name.lower()
+
+        # Handle different HTML elements
+        if tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            # Headers
+            text = element.get_text(strip=True)
+            if text:
+                level = int(tag_name[1])
+                element_chunks.append(('heading', text, {'level': level, 'depth': depth}))
+
+        elif tag_name == 'p':
+            # Paragraphs
+            text = element.get_text(strip=True)
+            if text:
+                # Check for special paragraph types (bold, highlighted, etc)
+                has_strong = element.find('strong') or element.find('b')
+                has_em = element.find('em') or element.find('i')
+                has_mark = element.find('mark')
+
+                metadata = {'depth': depth}
+                if has_strong:
+                    metadata['emphasis'] = 'strong'
+                if has_em:
+                    metadata['emphasis'] = 'italic'
+                if has_mark:
+                    metadata['highlight'] = True
+
+                element_chunks.append(('paragraph', text, metadata))
+
+        elif tag_name in ['ul', 'ol']:
+            # Lists
+            list_items = []
+            for li in element.find_all('li', recursive=False):
+                item_text = li.get_text(strip=True)
+                if item_text:
+                    list_items.append(item_text)
+
+            if list_items:
+                list_type = 'ordered' if tag_name == 'ol' else 'unordered'
+                element_chunks.append(('list', list_items, {'type': list_type, 'depth': depth}))
+
+        elif tag_name == 'blockquote':
+            # Block quotes - important for educational content
+            text = element.get_text(strip=True)
+            if text:
+                element_chunks.append(('blockquote', text, {'depth': depth}))
+
+        elif tag_name == 'pre' or tag_name == 'code':
+            # Code blocks
+            text = element.get_text(strip=False)  # Preserve formatting
+            if text:
+                element_chunks.append(('code', text, {'depth': depth}))
+
+        elif tag_name == 'table':
+            # Tables - common in educational content
+            rows = []
+            for tr in element.find_all('tr'):
+                cells = []
+                for cell in tr.find_all(['td', 'th']):
+                    cells.append(cell.get_text(strip=True))
+                if cells:
+                    rows.append(cells)
+
+            if rows:
+                element_chunks.append(('table', rows, {'depth': depth}))
+
+        elif tag_name == 'img':
+            # Images
+            src = element.get('src', '')
+            alt = element.get('alt', '')
+            if src:
+                img_data = None
+                if src.startswith('data:image'):
+                    img_data = extract_base64_image(src)
+                elif src.startswith(('http://', 'https://')):
+                    img_data = download_image(src)
+                elif src.startswith('//'):
+                    img_data = download_image('https:' + src)
+
+                if img_data:
+                    element_chunks.append(('image', img_data, {'alt': alt, 'depth': depth}))
+
+        elif tag_name == 'div':
+            # Check for special div classes (callouts, highlights, etc)
+            classes = element.get('class', [])
+            if isinstance(classes, str):
+                classes = classes.split()
+
+            # Common educational content patterns
+            is_callout = any(c in classes for c in ['callout', 'alert', 'note', 'tip', 'warning', 'info'])
+            is_highlight = any(c in classes for c in ['highlight', 'important', 'key-point'])
+
+            if is_callout or is_highlight:
+                text = element.get_text(strip=True)
+                if text:
+                    metadata = {'depth': depth}
+                    if is_callout:
+                        metadata['type'] = 'callout'
+                    if is_highlight:
+                        metadata['highlight'] = True
+                    element_chunks.append(('special', text, metadata))
+            else:
+                # Process children for regular divs
+                for child in element.children:
+                    element_chunks.extend(process_element(child, depth + 1))
+                return element_chunks
+        else:
+            # For other elements, process their children
+            for child in element.children:
+                element_chunks.extend(process_element(child, depth + 1))
+            return element_chunks
+
+        # After processing the element itself, process its children if not already done
+        if tag_name not in ['div', 'ul', 'ol', 'table']:
+            for child in element.children:
+                if isinstance(child, Tag) and child.name not in ['li', 'tr', 'td', 'th']:
+                    element_chunks.extend(process_element(child, depth + 1))
+
+        return element_chunks
+
+    # Process the body or the entire soup if no body
+    body = soup.body if soup.body else soup
+    for element in body.children:
+        chunks.extend(process_element(element))
+
+    return chunks

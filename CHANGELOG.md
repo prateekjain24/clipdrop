@@ -5,6 +5,55 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2025-01-17
+
+### 📚 Enhanced HTML to PDF Conversion for Educational Content
+
+### Added
+- **Advanced HTML structure preservation**
+  - New `parse_html_content_enhanced()` function for better parsing
+  - Preserves tables, lists (ordered/unordered), blockquotes
+  - Detects and styles special content (callouts, highlights)
+  - Maintains code blocks with proper formatting
+  - Hierarchical heading preservation (H1-H6)
+- **Educational content optimizations**
+  - Callout boxes with yellow background for important notes
+  - Justified text option for improved readability
+  - Enhanced table formatting with grid lines and alternating rows
+  - Blockquote styling with italic text
+  - Better visual hierarchy for cognitive load management
+- **New CLI options**
+  - `--educational/--no-educational` flag for formatting control
+  - Educational mode enabled by default for better formatting
+- **Comprehensive test coverage**
+  - Added `test_enhanced_html.py` with 20+ tests
+  - Tests for all HTML elements and edge cases
+  - Integration tests for complete workflow
+
+### Improved
+- Automatic fallback to standard parsing if enhanced parsing fails
+- Better content type detection in preview mode
+- Enhanced spacing and typography in PDFs
+- Improved handling of nested HTML structures
+- Better support for educational and technical documentation
+
+### Technical
+- Added `create_pdf_from_enhanced_html()` in pdf.py
+- Enhanced main.py integration with automatic format detection
+- No new dependencies required - uses existing libraries
+- Maintains backward compatibility
+
+---
+
+## [0.4.1] - 2025-01-17
+
+### Bug Fixes & Minor Improvements
+- Fixed HTML parsing edge cases
+- Improved error handling in PDF generation
+- Better memory management for large documents
+
+---
+
 ## [0.4.0] - 2025-01-17
 
 ### 🌐 HTML Clipboard Support & Web Content

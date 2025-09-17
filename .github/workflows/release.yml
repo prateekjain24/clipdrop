@@ -46,4 +46,9 @@ jobs:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       run: |
-        twine upload dist/*
+        if [ -z "${TWINE_PASSWORD:-}" ]; then
+          echo "Missing PYPI_API_TOKEN secret. Add it in Repo → Settings → Secrets and variables → Actions." >&2
+          exit 1
+        fi
+        echo "TWINE_PASSWORD length: ${#TWINE_PASSWORD}"
+        python -m twine upload -v --non-interactive dist/*

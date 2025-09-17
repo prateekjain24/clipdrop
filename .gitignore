@@ -5,6 +5,12 @@ requirement.md
 IMP.md
 next.md
 *.pdf
+enh.md
+example_educational.html
+demo_enhanced_conversion.py
+ENHANCEMENT_SUMMARY.md
+educational_output.pdf
+educational_standard.pdf
 # Python
 __pycache__/
 *.py[cod]
