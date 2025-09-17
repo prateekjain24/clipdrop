@@ -8,16 +8,12 @@ import base64
 import io
 import re
 import subprocess
-import tempfile
-from pathlib import Path
 from typing import List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
 
-from .exceptions import ClipboardError
 
 
 def get_html_from_clipboard() -> Optional[str]:

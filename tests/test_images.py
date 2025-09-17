@@ -4,7 +4,6 @@ import pytest
 from pathlib import Path
 from PIL import Image
 from unittest.mock import patch, MagicMock
-import tempfile
 
 from clipdrop import images, clipboard
 from clipdrop.exceptions import ImageSaveError, ImageFormatError, ImageClipboardError
@@ -85,14 +84,14 @@ class TestImageSaving:
         """Test saving image with transparency."""
         # PNG should preserve transparency
         png_path = temp_directory / 'transparent.png'
-        result = images.write_image(png_path, sample_image_with_transparency, force=True)
+        images.write_image(png_path, sample_image_with_transparency, force=True)
 
         with Image.open(png_path) as saved_img:
             assert saved_img.mode == 'RGBA'
 
         # JPEG should convert transparency to RGB
         jpg_path = temp_directory / 'converted.jpg'
-        result = images.write_image(jpg_path, sample_image_with_transparency, force=True)
+        images.write_image(jpg_path, sample_image_with_transparency, force=True)
 
         with Image.open(jpg_path) as saved_img:
             assert saved_img.mode == 'RGB'
@@ -263,7 +262,7 @@ class TestImageFormatsConversion:
         rgba_image = Image.new('RGBA', (50, 50), color=(255, 0, 0, 128))
         output_path = temp_directory / 'converted.jpg'
 
-        result = images.write_image(output_path, rgba_image, force=True)
+        images.write_image(output_path, rgba_image, force=True)
 
         with Image.open(output_path) as saved_img:
             assert saved_img.mode == 'RGB'
@@ -274,7 +273,7 @@ class TestImageFormatsConversion:
         rgb_image = Image.new('RGB', (50, 50), color='blue')
         output_path = temp_directory / 'animated.gif'
 
-        result = images.write_image(output_path, rgb_image, force=True)
+        images.write_image(output_path, rgb_image, force=True)
 
         with Image.open(output_path) as saved_img:
             assert saved_img.format == 'GIF'

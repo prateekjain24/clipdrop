@@ -1,8 +1,6 @@
 """Tests for clipboard operations module."""
 
-import pytest
-from unittest.mock import patch, Mock
-import pyperclip
+from unittest.mock import patch
 
 from clipdrop import clipboard
 

@@ -1,8 +1,7 @@
 """Clipboard operations module for ClipDrop."""
 
 import time
-import re
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 import pyperclip
 
 try:
@@ -63,7 +62,7 @@ def get_text() -> Optional[str]:
         return content if content else None
     except ContentTooLargeError:
         raise
-    except Exception as e:
+    except Exception:
         # Handle any clipboard access errors
         return None
 

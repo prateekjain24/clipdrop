@@ -1,8 +1,5 @@
 """Tests for PDF creation functionality."""
 
-import tempfile
-from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 from PIL import Image

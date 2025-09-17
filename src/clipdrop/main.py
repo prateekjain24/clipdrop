@@ -8,7 +8,7 @@ from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
-from clipdrop import clipboard, detect, files, images, pdf
+from clipdrop import clipboard, detect, files, images
 from clipdrop.error_helpers import display_error, show_success_message
 
 console = Console()
@@ -397,7 +397,7 @@ def main(
     except typer.Exit:
         # Clean exit - just re-raise it
         raise
-    except PermissionError as e:
+    except PermissionError:
         display_error('permission_denied', {'filename': filename})
         raise typer.Exit(1)
     except files.PathTraversalError:

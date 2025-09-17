@@ -1,13 +1,12 @@
 """Image operations module for ClipDrop."""
 
 from pathlib import Path
-from typing import Union, Optional, Dict, Any, Tuple
+from typing import Union, Optional, Dict, Any
 from PIL import Image
 
 from clipdrop.exceptions import (
     ImageSaveError,
-    ImageFormatError,
-    InvalidFilenameError
+    ImageFormatError
 )
 
 

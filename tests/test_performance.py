@@ -1,16 +1,11 @@
 """Performance tests for ClipDrop operations."""
 
-import pytest
 import time
-import tempfile
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from PIL import Image
-import io
 
 from clipdrop import clipboard, detect, files, images
-from clipdrop.main import main
 
 
 class TestPerformanceMetrics:
@@ -193,7 +188,7 @@ class TestEndToEndPerformance:
 
         # Simulate main workflow
         content = clipboard.get_text()
-        format_type = detect.detect_format(content)
+        detect.detect_format(content)  # Check format detection
         filename = detect.add_extension("test", content)
         output_path = temp_directory / filename
         files.write_text(output_path, content, force=True)

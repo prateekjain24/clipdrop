@@ -2,14 +2,12 @@
 
 import base64
 import io
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import subprocess
 
-import pytest
 from PIL import Image
 
 from clipdrop import html_parser
-from clipdrop.exceptions import ClipboardError
 
 
 class TestGetHtmlFromClipboard:

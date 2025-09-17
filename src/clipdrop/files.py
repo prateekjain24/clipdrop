@@ -14,8 +14,6 @@ from rich.prompt import Confirm
 from clipdrop.exceptions import (
     FilePermissionError,
     FileExistsError as ClipDropFileExistsError,
-    InvalidFilenameError,
-    PathTraversalError,
     EmptyContentError
 )
 

@@ -3,9 +3,9 @@
 import json
 import tempfile
 from pathlib import Path
-from typing import Generator, Any
+from typing import Generator
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
 from PIL import Image
 import io
 

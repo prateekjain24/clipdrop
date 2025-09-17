@@ -3,7 +3,6 @@
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
@@ -259,7 +258,7 @@ def show_success_message(filepath: Path, content_type: str, size: str,
         if 'format_detected' in additional_info:
             console.print(f"  [dim]Format: {additional_info['format_detected']}[/dim]")
         if 'optimized' in additional_info and additional_info['optimized']:
-            console.print(f"  [dim]✨ Optimized for smaller file size[/dim]")
+            console.print("  [dim]✨ Optimized for smaller file size[/dim]")
 
 
 def show_clipboard_status() -> None:
