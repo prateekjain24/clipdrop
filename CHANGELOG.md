@@ -5,6 +5,43 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-01-17
+
+### 🚀 Major Feature Release - PDF Support
+
+### Added
+- **Comprehensive PDF creation support**
+  - Mixed content (text + image) automatically creates PDF
+  - Preserves content order exactly as copied (WYCWYG principle)
+  - Explicit `.pdf` extension forces PDF creation
+  - Smart content analysis and chunk detection
+  - Code syntax detection and formatting in PDFs
+  - Automatic image scaling and RGBA to RGB conversion
+- **Enhanced format detection**
+  - Auto-detects mixed content → suggests PDF
+  - Improved content priority logic (mixed → PDF, image > text)
+- **35 new tests** for complete PDF functionality coverage
+- **ReportLab integration** for professional PDF generation
+
+### Changed
+- Default behavior for mixed content now creates PDF instead of prioritizing image
+- Updated help documentation with PDF examples
+- Enhanced CLI to seamlessly handle PDF workflow
+
+### Use Cases
+- Bug reports with screenshots and error messages
+- Documentation with diagrams and explanations
+- Meeting notes with whiteboard photos
+- Research with mixed media content
+
+### Technical
+- Added `pdf.py` module with comprehensive PDF operations
+- Updated `detect.py` to recognize PDF format requests
+- Enhanced `main.py` for PDF creation workflow
+- Total test count: 138 tests (was 103)
+
+---
+
 ## [0.2.0] - 2025-01-17
 
 ### 🎉 Major Release - Image Support & Polish

@@ -280,4 +280,4 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 
 ---
 
-**Current Version**: 0.2.0 | **Status**: Available on PyPI 
+**Current Version**: 0.3.0 | **Status**: Available on PyPI 
