@@ -8,7 +8,7 @@ from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
-from clipdrop import clipboard, detect, files, images
+from clipdrop import clipboard, detect, files, images, pdf
 from clipdrop.error_helpers import display_error, show_success_message
 
 console = Console()
@@ -71,8 +71,9 @@ def main(
         clipdrop photo.jpg          # Saves as JPEG with optimization
 
       [green]Mixed Content:[/green]
-        clipdrop content            # Prioritizes image if both exist
+        clipdrop document           # Mixed text+image → document.pdf
         clipdrop content --text     # Forces text mode
+        clipdrop report.pdf         # Explicitly create PDF
 
     [bold cyan]Smart Features:[/bold cyan]
 
@@ -110,28 +111,46 @@ def main(
             display_error('empty_clipboard')
             raise typer.Exit(1)
 
-        # Handle content priority
-        use_image = False
-        content = None
-        image = None
+        # Get both text and image content (may be None)
+        content = clipboard.get_text()
+        image = clipboard.get_image()
 
-        if content_type == 'both':
+        # Check if user explicitly wants PDF
+        file_path = Path(filename)
+        wants_pdf = file_path.suffix.lower() == '.pdf'
+
+        # Determine what to save based on content and user preference
+        use_pdf = False
+        use_image = False
+
+        if wants_pdf:
+            # User explicitly requested PDF
+            use_pdf = True
+            console.print("[cyan]📄 Creating PDF from clipboard content...[/cyan]")
+        elif content_type == 'both':
             # Both image and text exist
             if text_mode:
                 console.print("[cyan]ℹ️  Both image and text found. Using text mode.[/cyan]")
-                content = clipboard.get_text()
+                image = None  # Ignore image in text mode
+            elif not file_path.suffix:
+                # No extension provided, mixed content -> suggest PDF
+                use_pdf = True
+                console.print("[cyan]📄 Mixed content detected (text + image). Creating PDF to preserve both.[/cyan]")
             else:
-                console.print("[cyan]ℹ️  Both image and text found. Using image (use --text for text).[/cyan]")
-                use_image = True
-                image = clipboard.get_image()
+                # Has extension, follow user's choice
+                if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
+                    use_image = True
+                    content = None  # Use image only
+                    console.print("[cyan]ℹ️  Both found. Using image (use --text for text only).[/cyan]")
+                else:
+                    image = None  # Use text only
+                    console.print("[cyan]ℹ️  Both found. Using text (specify .pdf to include both).[/cyan]")
         elif content_type == 'image':
             use_image = True
-            image = clipboard.get_image()
             if image is None:
                 console.print("[red]❌ Could not read image from clipboard.[/red]")
                 raise typer.Exit(1)
-        else:  # text only
-            content = clipboard.get_text()
+        elif content_type == 'text':
             if content is None:
                 console.print("[red]❌ Could not read clipboard content.[/red]")
                 raise typer.Exit(1)
@@ -141,7 +160,65 @@ def main(
             filename = files.sanitize_filename(filename)
             console.print(f"[yellow]⚠️  Invalid characters in filename. Using: {filename}[/yellow]")
 
-        if use_image:
+        if use_pdf:
+            # Handle PDF creation
+            # Add .pdf extension if not present
+            if not file_path.suffix:
+                final_filename = f"{filename}.pdf"
+            else:
+                final_filename = filename
+
+            if final_filename != filename:
+                console.print(f"[cyan]📄 Saving as PDF: {final_filename}[/cyan]")
+
+            file_path = Path(final_filename)
+
+            # Show preview if requested
+            if preview:
+                preview_parts = []
+                if content:
+                    preview_parts.append(f"[cyan]Text:[/cyan] {len(content)} characters")
+                    preview_text = content[:100] + "..." if len(content) > 100 else content
+                    preview_parts.append(f"[dim]{preview_text}[/dim]")
+                if image:
+                    info = clipboard.get_image_info()
+                    if info:
+                        preview_parts.append(f"\n[cyan]Image:[/cyan] {info['width']}x{info['height']} pixels, {info['mode']} mode")
+
+                console.print(Panel(
+                    "\n".join(preview_parts),
+                    title=f"PDF Preview: {final_filename}",
+                    expand=False
+                ))
+
+                # Confirm save after preview
+                if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+                    console.print("[yellow]Operation cancelled.[/yellow]")
+                    raise typer.Exit()
+
+            # Create the PDF
+            success, message = pdf.create_pdf(file_path, text=content, image=image, force=force)
+
+            if success:
+                console.print(f"[green]✅ {message}[/green]")
+            else:
+                # Check if it's an overwrite issue
+                if "already exists" in message and not force:
+                    if Confirm.ask(f"[yellow]File exists. Overwrite {file_path}?[/yellow]"):
+                        success, message = pdf.create_pdf(file_path, text=content, image=image, force=True)
+                        if success:
+                            console.print(f"[green]✅ {message}[/green]")
+                        else:
+                            console.print(f"[red]❌ {message}[/red]")
+                            raise typer.Exit(1)
+                    else:
+                        console.print("[yellow]Operation cancelled.[/yellow]")
+                        raise typer.Exit()
+                else:
+                    console.print(f"[red]❌ {message}[/red]")
+                    raise typer.Exit(1)
+
+        elif use_image:
             # Handle image save
             # Add extension if not present
             final_filename = images.add_image_extension(filename, image)
@@ -187,7 +264,26 @@ def main(
         else:
             # Handle text save (existing logic)
             # Add extension if not present
-            final_filename = detect.add_extension(filename, content)
+            has_image = image is not None
+            final_filename = detect.add_extension(filename, content, has_image)
+
+            # Check if the detected format is PDF (shouldn't happen here, but just in case)
+            if Path(final_filename).suffix.lower() == '.pdf':
+                use_pdf = True
+                file_path = Path(final_filename)
+                console.print(f"[cyan]📄 Auto-detected mixed content. Creating PDF: {final_filename}[/cyan]")
+
+                # Create the PDF
+                success, message = pdf.create_pdf(file_path, text=content, image=image, force=force)
+
+                if success:
+                    console.print(f"[green]✅ {message}[/green]")
+                else:
+                    console.print(f"[red]❌ {message}[/red]")
+                    raise typer.Exit(1)
+
+                raise typer.Exit(0)  # Success, exit
+
             if final_filename != filename:
                 console.print(f"[cyan]📝 Auto-detected format. Saving as: {final_filename}[/cyan]")
 

@@ -2,7 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/clipdrop.svg)](https://badge.fury.io/py/clipdrop)
 [![Python](https://img.shields.io/pypi/pyversions/clipdrop.svg)](https://pypi.org/project/clipdrop/)
-[![Downloads](https://pepy.tech/badge/clipdrop)](https://pepy.tech/project/clipdrop)
+[![Downloads](https://img.shields.io/pypi/dm/clipdrop.svg)](https://pypistats.org/packages/clipdrop)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub issues](https://img.shields.io/github/issues/prateekjain24/clipdrop)](https://github.com/prateekjain24/clipdrop/issues)
 
@@ -28,10 +28,11 @@ This workflow interruption is especially painful for:
 
 ## Features
 
+- **PDF Creation**: Save mixed content (text + images) as PDF to preserve context 📄
 - **Image Support**: Save images from clipboard (PNG, JPG, GIF, BMP, WebP) 📷
-- **Smart Format Detection**: Automatically detects JSON, Markdown, CSV, and image formats
+- **Smart Format Detection**: Automatically detects JSON, Markdown, CSV, PDF, and image formats
 - **Extension Auto-Suggestion**: No extension? ClipDrop suggests the right one
-- **Content Priority**: Intelligently handles mixed content (image + text)
+- **Content Priority**: Intelligently handles mixed content (text + image → PDF)
 - **Safe by Default**: Interactive overwrite protection (bypass with `--force`)
 - **Preview Mode**: See content before saving (text with syntax highlighting, images with dimensions)
 - **Rich CLI**: Beautiful, informative output with colors and icons
@@ -74,12 +75,14 @@ pip install -e .
 ### Basic Usage
 ```bash
 # Save clipboard to file (auto-detects format)
-clipdrop notes              # → notes.txt (text)
-clipdrop screenshot         # → screenshot.png (image)
+clipdrop notes              # → notes.txt (text only)
+clipdrop screenshot         # → screenshot.png (image only)
+clipdrop document           # → document.pdf (mixed content auto-detected)
 clipdrop data               # → data.json (if JSON detected)
 clipdrop readme             # → readme.md (if Markdown detected)
 
 # Specify extension explicitly
+clipdrop report.pdf         # Save any content as PDF
 clipdrop photo.jpg          # Save as JPEG
 clipdrop diagram.png        # Save as PNG
 clipdrop config.yaml        # Save as YAML
@@ -141,8 +144,23 @@ clipdrop screenshot
 #### Handle mixed content
 ```bash
 # When both image and text are in clipboard:
-clipdrop content          # Saves image by default
+clipdrop document         # Auto-creates PDF with both (NEW!)
+clipdrop content.png      # Save image only
 clipdrop content --text   # Forces text mode
+```
+
+#### Create PDFs from clipboard
+```bash
+# Mixed content (text + image) → PDF automatically
+clipdrop notes            # Has both? → notes.pdf
+
+# Explicitly create PDF from any content
+clipdrop report.pdf       # Always creates PDF
+
+# PDF preserves content order (WYCWYG - What You Copy is What You Get)
+# • Text with code → formatted in PDF
+# • Screenshots → embedded in PDF
+# • Mixed notes → structured document
 ```
 
 ## 🔧 Development
@@ -224,11 +242,13 @@ clipdrop/
 │   ├── files.py           # File operations
 │   ├── images.py          # Image-specific operations
 │   ├── detect.py          # Format detection
+│   ├── pdf.py             # PDF creation (NEW)
 │   └── exceptions.py      # Custom exceptions
-├── tests/                 # Comprehensive test suite (89 tests)
+├── tests/                 # Comprehensive test suite (124 tests)
 │   ├── test_clipboard.py  # 27 tests
 │   ├── test_files.py      # 37 tests
-│   └── test_images.py     # 25 tests
+│   ├── test_images.py     # 25 tests
+│   └── test_pdf.py        # 35 tests (NEW)
 ├── pyproject.toml         # Modern Python packaging
 └── README.md              # This file
 ```
@@ -242,6 +262,7 @@ clipdrop/
   - rich >= 14.1.0
   - pyperclip >= 1.9.0
   - Pillow >= 11.3.0
+  - reportlab >= 4.0.0
 
 ## 📄 License
 

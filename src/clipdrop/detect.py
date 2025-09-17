@@ -104,16 +104,21 @@ def is_csv(content: str) -> bool:
     return False
 
 
-def detect_format(content: str) -> str:
+def detect_format(content: str, has_image: bool = False) -> str:
     """
     Detect the most likely format of the content.
 
     Args:
         content: String content to analyze
+        has_image: Whether image content is also present
 
     Returns:
-        File extension without dot: 'json', 'md', 'csv', or 'txt'
+        File extension without dot: 'json', 'md', 'csv', 'pdf', or 'txt'
     """
+    # Mixed content (text + image) suggests PDF
+    if content and has_image:
+        return 'pdf'
+
     if not content:
         return 'txt'
 
@@ -128,13 +133,14 @@ def detect_format(content: str) -> str:
         return 'txt'
 
 
-def add_extension(filename: str, content: str) -> str:
+def add_extension(filename: str, content: str, has_image: bool = False) -> str:
     """
     Add appropriate extension to filename if it doesn't have one.
 
     Args:
         filename: Original filename (with or without extension)
         content: Content to be saved (used for format detection)
+        has_image: Whether image content is also present
 
     Returns:
         Filename with appropriate extension
@@ -146,24 +152,27 @@ def add_extension(filename: str, content: str) -> str:
         return filename
 
     # Detect format and add extension
-    detected_format = detect_format(content)
+    detected_format = detect_format(content, has_image)
     return f"{filename}.{detected_format}"
 
 
-def suggest_filename(content: str) -> str:
+def suggest_filename(content: str, has_image: bool = False) -> str:
     """
     Suggest a filename based on content type.
 
     Args:
         content: Content to analyze
+        has_image: Whether image content is also present
 
     Returns:
         Suggested filename with extension
     """
-    format_type = detect_format(content)
+    format_type = detect_format(content, has_image)
 
     # Generate contextual default names
-    if format_type == 'json':
+    if format_type == 'pdf':
+        return 'document.pdf'
+    elif format_type == 'json':
         return 'data.json'
     elif format_type == 'csv':
         return 'data.csv'
