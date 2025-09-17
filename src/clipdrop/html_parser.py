@@ -419,11 +419,20 @@ def parse_html_content_enhanced(html: str) -> List[Tuple[str, Any, Dict]]:
             if text:
                 element_chunks.append(('blockquote', text, {'depth': depth}))
 
-        elif tag_name == 'pre' or tag_name == 'code':
-            # Code blocks
+        elif tag_name == 'pre':
+            # Code blocks - only process <pre> tags, not standalone <code>
             text = element.get_text(strip=False)  # Preserve formatting
             if text:
                 element_chunks.append(('code', text, {'depth': depth}))
+        elif tag_name == 'code':
+            # Inline code - skip if inside <pre> (will be handled by parent)
+            if element.parent and element.parent.name == 'pre':
+                pass  # Skip, already handled by parent <pre>
+            else:
+                # Standalone inline code
+                text = element.get_text(strip=False)
+                if text:
+                    element_chunks.append(('code', text, {'depth': depth, 'inline': True}))
 
         elif tag_name == 'table':
             # Tables - common in educational content
@@ -464,20 +473,28 @@ def parse_html_content_enhanced(html: str) -> List[Tuple[str, Any, Dict]]:
             is_callout = any(c in classes for c in ['callout', 'alert', 'note', 'tip', 'warning', 'info'])
             is_highlight = any(c in classes for c in ['highlight', 'important', 'key-point'])
 
-            if is_callout or is_highlight:
+            if is_callout:
+                # Callout div - treat entire content as special
                 text = element.get_text(strip=True)
                 if text:
-                    metadata = {'depth': depth}
-                    if is_callout:
-                        metadata['type'] = 'callout'
-                    if is_highlight:
-                        metadata['highlight'] = True
+                    metadata = {'depth': depth, 'type': 'callout'}
                     element_chunks.append(('special', text, metadata))
+            elif is_highlight:
+                # Highlight div - process children separately to preserve structure
+                # First add any direct text as special
+                direct_text = ''.join(str(c) for c in element.children if isinstance(c, NavigableString)).strip()
+                if direct_text:
+                    metadata = {'depth': depth, 'highlight': True}
+                    element_chunks.append(('special', direct_text, metadata))
+                # Then process child elements
+                for child in element.children:
+                    if not isinstance(child, NavigableString):
+                        element_chunks.extend(process_element(child, depth + 1))
             else:
                 # Process children for regular divs
                 for child in element.children:
                     element_chunks.extend(process_element(child, depth + 1))
-                return element_chunks
+            return element_chunks
         else:
             # For other elements, process their children
             for child in element.children:

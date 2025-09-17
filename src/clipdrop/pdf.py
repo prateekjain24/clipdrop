@@ -16,8 +16,7 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.platypus import Image as RLImage
 
 from .exceptions import FileWriteError
@@ -838,8 +837,6 @@ def create_pdf_from_enhanced_html(
 
     # Process enhanced chunks
     for i, (chunk_type, content, metadata) in enumerate(enhanced_chunks):
-        depth = metadata.get('depth', 0)
-
         if chunk_type == 'heading':
             level = metadata.get('level', 1)
             style_name = f'H{min(level, 4)}'  # Cap at H4

@@ -1,8 +1,7 @@
 """Tests for enhanced HTML parsing and PDF generation."""
 
 import io
-from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from PIL import Image
 import pytest
 
@@ -186,11 +185,11 @@ def cognitive_support(age):
 
         chunks = html_parser.parse_html_content_enhanced(html)
 
-        # Check for special div handling
-        specials = [c for c in chunks if c[0] == 'special']
+        # Check for special div handling (not using the variable to avoid linting warning)
+        # The highlight div should process children separately
         # Check for ordered list
         lists = [c for c in chunks if c[0] == 'list']
-        assert any(l[2].get('type') == 'ordered' for l in lists)
+        assert any(lst[2].get('type') == 'ordered' for lst in lists)
 
     def test_empty_html(self):
         """Test handling of empty HTML."""

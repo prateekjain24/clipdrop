@@ -158,7 +158,7 @@ def main(
 
                     # Show preview if requested
                     if preview:
-                        preview_lines = [f"[cyan]HTML Content (Enhanced):[/cyan]"]
+                        preview_lines = ["[cyan]HTML Content (Enhanced):[/cyan]"]
                         preview_lines.append(f"Text: {total_text_len} characters")
                         for content_type, count in content_counts.items():
                             preview_lines.append(f"{content_type.title()}: {count} element(s)")
