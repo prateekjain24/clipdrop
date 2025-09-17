@@ -31,14 +31,12 @@ jobs:
         twine check dist/*
 
     - name: Create Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
+        name: Release ${{ github.ref_name }}
+        files: |
+          dist/*.whl
+          dist/*.tar.gz
 
     - name: Upload to PyPI
       if: startsWith(github.ref, 'refs/tags/')
