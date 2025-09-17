@@ -1,7 +1,9 @@
 """Performance tests for ClipDrop operations."""
 
+import os
 import time
 import json
+import pytest
 from unittest.mock import patch
 from PIL import Image
 
@@ -220,6 +222,10 @@ class TestEndToEndPerformance:
 class TestOptimizationEffectiveness:
     """Test that optimizations are working effectively."""
 
+    @pytest.mark.skipif(
+        os.environ.get('CI') == 'true',
+        reason="Timing varies significantly on CI runners"
+    )
     def test_image_compression_performance(self, temp_directory):
         """Test image compression doesn't significantly impact performance."""
         test_image = Image.new('RGB', (1000, 1000), color='red')
