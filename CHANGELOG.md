@@ -5,6 +5,44 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-01-17
+
+### 🌐 HTML Clipboard Support & Web Content
+
+### Added
+- **HTML clipboard parsing from web content**
+  - Automatically detects HTML content from browser copies
+  - Extracts text and embedded images from web pages
+  - Downloads external images from URLs
+  - Processes base64 embedded images
+  - Creates PDFs preserving original content structure
+- **Enhanced mixed content detection**
+  - Recognizes HTML clipboard format (rich content)
+  - Improved content type detection for web copies
+  - Better handling of Medium, Wikipedia, and other web articles
+- **26 comprehensive tests for HTML parsing**
+  - Full coverage of HTML extraction functionality
+  - Image download and processing tests
+  - Base64 image extraction tests
+- **New dependencies for web content**
+  - BeautifulSoup4 for HTML parsing
+  - Requests for image downloads
+  - lxml for efficient HTML processing
+
+### Changed
+- Content type detection now prioritizes HTML mixed content
+- PDF generation preserves exact content order (WYCWYG)
+- Removed automatic title addition to PDFs
+- Fixed performance test flakiness
+
+### Fixed
+- Mixed content mode now works with web copies
+- PDFs no longer add unwanted titles
+- Images maintain original position in content
+- Performance test timing variations handled
+
+---
+
 ## [0.3.0] - 2025-01-17
 
 ### 🚀 Major Feature Release - PDF Support

@@ -111,6 +111,53 @@ def main(
             display_error('empty_clipboard')
             raise typer.Exit(1)
 
+        # Handle HTML mixed content (from web pages)
+        if content_type == 'html_mixed':
+            from clipdrop import html_parser
+            html_data = html_parser.get_html_with_images()
+            if html_data:
+                _, html_text, html_images = html_data
+                file_path = Path(filename)
+
+                # Add .pdf extension if not present
+                if not file_path.suffix:
+                    final_filename = f"{filename}.pdf"
+                    console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                elif file_path.suffix.lower() != '.pdf':
+                    final_filename = f"{file_path.stem}.pdf"
+                    console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+                else:
+                    final_filename = filename
+                    console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
+
+                file_path = Path(final_filename)
+
+                # Show preview if requested
+                if preview:
+                    console.print(Panel(
+                        f"[cyan]HTML Content:[/cyan]\n"
+                        f"Text: {len(html_text)} characters\n"
+                        f"Images: {len(html_images)} embedded images",
+                        title=f"Preview: {final_filename}",
+                        expand=False
+                    ))
+                    if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+                        console.print("[yellow]Operation cancelled.[/yellow]")
+                        raise typer.Exit()
+
+                # Create PDF from HTML content
+                from clipdrop import pdf
+                pdf.create_pdf_from_html_content(
+                    html_text, html_images, file_path
+                )
+
+                # Success message
+                file_size = file_path.stat().st_size
+                size_str = files.get_file_size_human(file_size)
+                img_count = len(html_images)
+                console.print(f"[green]✅ Created PDF from HTML ({len(html_text)} chars, {img_count} images, {size_str}) at {file_path}[/green]")
+                raise typer.Exit()
+
         # Get both text and image content (may be None)
         content = clipboard.get_text()
         image = clipboard.get_image()
@@ -347,6 +394,9 @@ def main(
     except typer.Abort:
         # User cancelled operation
         raise typer.Exit()
+    except typer.Exit:
+        # Clean exit - just re-raise it
+        raise
     except PermissionError as e:
         display_error('permission_denied', {'filename': filename})
         raise typer.Exit(1)

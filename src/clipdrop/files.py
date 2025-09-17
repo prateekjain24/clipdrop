@@ -190,6 +190,23 @@ def is_image_extension(filename: str) -> bool:
     return path.suffix.lower() in image_extensions
 
 
+def get_file_size_human(size_bytes: int) -> str:
+    """
+    Convert file size in bytes to human-readable format.
+
+    Args:
+        size_bytes: Size in bytes
+
+    Returns:
+        Human-readable size string
+    """
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.1f} TB"
+
+
 def sanitize_filename(filename: str) -> str:
     """
     Sanitize filename by removing/replacing invalid characters.

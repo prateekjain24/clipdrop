@@ -28,11 +28,13 @@ This workflow interruption is especially painful for:
 
 ## Features
 
+- **Web Content Support**: Save content from web pages with embedded images 🌐
 - **PDF Creation**: Save mixed content (text + images) as PDF to preserve context 📄
+- **HTML Clipboard Parsing**: Automatically extracts text and images from web copies
 - **Image Support**: Save images from clipboard (PNG, JPG, GIF, BMP, WebP) 📷
-- **Smart Format Detection**: Automatically detects JSON, Markdown, CSV, PDF, and image formats
+- **Smart Format Detection**: Automatically detects JSON, Markdown, CSV, PDF, HTML, and image formats
 - **Extension Auto-Suggestion**: No extension? ClipDrop suggests the right one
-- **Content Priority**: Intelligently handles mixed content (text + image → PDF)
+- **Content Priority**: Intelligently handles mixed content (HTML → PDF, text + image → PDF)
 - **Safe by Default**: Interactive overwrite protection (bypass with `--force`)
 - **Preview Mode**: See content before saving (text with syntax highlighting, images with dimensions)
 - **Rich CLI**: Beautiful, informative output with colors and icons
@@ -116,6 +118,14 @@ clipdrop --help
 # Copy some text, then:
 clipdrop notes
 # ✅ Saved 156 B to notes.txt
+```
+
+#### Save web article with images
+```bash
+# Copy article from Medium, Wikipedia, etc., then:
+clipdrop article
+# 📄 HTML with images detected. Creating PDF: article.pdf
+# ✅ Created PDF from HTML (2048 chars, 5 images, 245.3 KB) at article.pdf
 ```
 
 #### Auto-detect JSON and pretty-print

@@ -580,3 +580,39 @@ def should_suggest_pdf(text: Optional[str], image: Optional[Image.Image]) -> boo
         True if PDF should be suggested (mixed content scenario)
     """
     return has_mixed_content(text, image)
+
+
+def create_pdf_from_html_content(
+    html_text: str,
+    html_images: List[Image.Image],
+    output_path: Path,
+    title: Optional[str] = None
+) -> None:
+    """
+    Create PDF from HTML clipboard content with embedded images.
+
+    Args:
+        html_text: Extracted text from HTML
+        html_images: List of PIL Image objects from HTML
+        output_path: Path where PDF will be saved
+        title: Optional title for the PDF (not used by default)
+    """
+    # Convert to content chunks for mixed content handler
+    chunks = []
+
+    # Add ALL text as one chunk to preserve original structure
+    if html_text and html_text.strip():
+        chunks.append(ContentChunk('text', html_text))
+
+    # Add all images after text
+    for img in html_images:
+        if img:
+            chunks.append(ContentChunk('image', img, {
+                'width': img.width,
+                'height': img.height,
+                'mode': img.mode
+            }))
+
+    # Create PDF WITHOUT title (unless explicitly provided)
+    if chunks:
+        create_pdf_from_mixed(chunks, output_path, title=None, preserve_order=True)

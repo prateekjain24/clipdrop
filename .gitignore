@@ -3,7 +3,8 @@ CLAUDE.md
 requirement.md
 .claude
 IMP.md
-
+next.md
+*.pdf
 # Python
 __pycache__/
 *.py[cod]

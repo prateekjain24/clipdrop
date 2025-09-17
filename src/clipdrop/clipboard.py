@@ -103,24 +103,6 @@ def has_content() -> bool:
     return content is not None and len(content) > 0
 
 
-def get_content_type() -> str:
-    """
-    Determine the type of content in clipboard.
-
-    Returns:
-        'text' if text content exists
-        'empty' if clipboard is empty
-        'unknown' for any other case
-    """
-    content = get_text()
-    if content is None:
-        return 'empty'
-    elif len(content) > 0:
-        return 'text'
-    else:
-        return 'empty'
-
-
 def get_content_preview(max_chars: int = 100) -> Optional[str]:
     """
     Get a preview of clipboard content.
@@ -390,8 +372,20 @@ def get_content_type() -> str:
     Determine what type of content is in the clipboard.
 
     Returns:
-        'image', 'text', 'both', or 'none'
+        'html_mixed', 'both', 'image', 'text', or 'none'
     """
+    # Check for HTML content first (rich content from web)
+    try:
+        from . import html_parser
+        if html_parser.has_html_content():
+            # Check if HTML has embedded images
+            html_data = html_parser.get_html_with_images()
+            if html_data and html_data[2]:  # Has images
+                return 'html_mixed'
+    except Exception:
+        pass
+
+    # Check for regular image and text
     has_img = has_image()
     has_txt = has_content()
 
