@@ -405,8 +405,22 @@ class TestCaptionSelection:
         ]
 
         selected = select_caption_track(captions, None)
-        # Should return first caption
-        assert selected == ("es", "Spanish (auto-generated)", True)
+        # Should return English (default language when no preference)
+        assert selected == ("en", "English (auto-generated)", True)
+
+    def test_select_default_english(self):
+        """Test defaulting to English when no preference specified."""
+        captions = [
+            ("aa", "Afar", True),
+            ("ab", "Abkhazian", True),
+            ("en", "English", True),
+            ("es", "Spanish", True),
+            ("fr", "French", True)
+        ]
+
+        selected = select_caption_track(captions, None)
+        # Should default to English when no preference specified
+        assert selected == ("en", "English", True)
 
     def test_select_fallback(self):
         """Test falling back when preferred language not available."""

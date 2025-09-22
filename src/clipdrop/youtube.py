@@ -159,13 +159,17 @@ def list_captions(url: str) -> List[Tuple[str, str, bool]]:
         if len(lines) < 2:
             raise NoCaptionsError(extract_video_id(url))
 
-        # Parse the JSON outputs
-        try:
-            manual_subs = json.loads(lines[0]) if lines[0] and lines[0] != 'null' else {}
-            auto_subs = json.loads(lines[1]) if lines[1] and lines[1] != 'null' else {}
-        except json.JSONDecodeError:
-            manual_subs = {}
-            auto_subs = {}
+        # Parse the JSON outputs (handle NA and empty values)
+        def parse_subs_json(line):
+            if not line or line == 'null' or line == 'NA' or line == '':
+                return {}
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                return {}
+
+        manual_subs = parse_subs_json(lines[0])
+        auto_subs = parse_subs_json(lines[1]) if len(lines) > 1 else {}
 
         captions = []
 
@@ -232,12 +236,27 @@ def select_caption_track(
     if not captions:
         return None
 
-    # If no preference specified, return first manual caption or first caption
+    # If no preference specified, default to English
     if not preferred_lang:
-        # Try to find a manual caption first
+        # Try English first (most common for tech content)
+        for caption in captions:
+            lang_code, name, is_auto = caption
+            if lang_code.lower().startswith('en'):
+                # Prefer manual over auto-generated
+                if not is_auto:
+                    return caption
+
+        # Try auto-generated English if no manual English found
+        for caption in captions:
+            lang_code, name, is_auto = caption
+            if lang_code.lower().startswith('en') and is_auto:
+                return caption
+
+        # No English found, try to find any manual caption
         for caption in captions:
             if not caption[2]:  # Not auto-generated
                 return caption
+
         # Fall back to first caption
         return captions[0]
 
@@ -426,7 +445,18 @@ def download_vtt(
                 # Rename to expected name
                 alt_vtt_path.rename(vtt_path)
             else:
-                raise NoCaptionsError(f"No captions downloaded for language: {lang_code}")
+                # Try with NA prefix (yt-dlp sometimes adds this)
+                na_vtt_path = video_cache_dir / f"{video_id}.NA.{lang_code}.vtt"
+                if na_vtt_path.exists():
+                    # Rename to expected name
+                    na_vtt_path.rename(vtt_path)
+                else:
+                    # Try with NA and short lang code
+                    na_short_vtt_path = video_cache_dir / f"{video_id}.NA.{lang_code.split('-')[0]}.vtt"
+                    if na_short_vtt_path.exists():
+                        na_short_vtt_path.rename(vtt_path)
+                    else:
+                        raise NoCaptionsError(f"No captions downloaded for language: {lang_code}")
 
         return str(vtt_path)
 
@@ -523,17 +553,26 @@ def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
         if len(lines) < 9:
             raise YouTubeError("Incomplete video information received")
 
+        # Helper function to safely parse JSON
+        def safe_json_parse(line, default=None):
+            if not line or line == 'null' or line == 'NA':
+                return default
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                return default
+
         # Parse the output
         video_info = {
-            'title': json.loads(lines[0]) if lines[0] != 'null' else 'Unknown Title',
-            'id': json.loads(lines[1]) if lines[1] != 'null' else video_id,
-            'uploader': json.loads(lines[2]) if lines[2] != 'null' else 'Unknown',
-            'duration': json.loads(lines[3]) if lines[3] != 'null' else 0,
-            'upload_date': json.loads(lines[4]) if lines[4] != 'null' else None,
-            'description': json.loads(lines[5]) if lines[5] != 'null' else '',
-            'view_count': json.loads(lines[6]) if lines[6] != 'null' else 0,
-            'like_count': json.loads(lines[7]) if lines[7] != 'null' else 0,
-            'chapters': json.loads(lines[8]) if lines[8] != 'null' else None,
+            'title': safe_json_parse(lines[0], 'Unknown Title'),
+            'id': safe_json_parse(lines[1], video_id),
+            'uploader': safe_json_parse(lines[2], 'Unknown'),
+            'duration': safe_json_parse(lines[3], 0),
+            'upload_date': safe_json_parse(lines[4], None),
+            'description': safe_json_parse(lines[5], ''),
+            'view_count': safe_json_parse(lines[6], 0),
+            'like_count': safe_json_parse(lines[7], 0),
+            'chapters': safe_json_parse(lines[8], None),
             'url': url,
             'cached_at': datetime.now().isoformat()
         }
