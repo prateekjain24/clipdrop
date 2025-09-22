@@ -329,7 +329,7 @@ def sanitize_filename(title: str) -> str:
     title = title.strip(' .')
 
     # Truncate if too long (leave room for extensions)
-    max_length = 200
+    max_length = 30
     if len(title) > max_length:
         title = title[:max_length].rstrip()
 
@@ -768,3 +768,112 @@ def vtt_to_txt(vtt_content: str, preserve_paragraphs: bool = True) -> str:
     else:
         # Simple concatenation with spaces
         return ' '.join(text_parts)
+
+
+def vtt_to_md(vtt_content: str, include_timestamps: bool = True) -> str:
+    """
+    Convert VTT subtitle content to Markdown format.
+
+    Args:
+        vtt_content: The VTT file content as a string
+        include_timestamps: Whether to include timestamp ranges in the output
+
+    Returns:
+        The converted Markdown content as a string
+
+    Conversion includes:
+    - Adding a Transcript heading
+    - Optional timestamp ranges in bold
+    - Cleaning HTML tags and VTT formatting
+    - Paragraph formatting for readability
+    """
+    if not vtt_content or not vtt_content.strip():
+        return ""
+
+    # Parse VTT into structured data
+    cues = parse_vtt(vtt_content)
+
+    if not cues:
+        return ""
+
+    # Start with heading
+    md_lines = ["# Transcript", ""]
+
+    if include_timestamps:
+        # Format with timestamp ranges
+        for cue in cues:
+            # Format timestamps (remove milliseconds for cleaner display)
+            start_time = cue['start_time'].split('.')[0]
+            end_time = cue['end_time'].split('.')[0]
+
+            # Add hours if missing (for consistency)
+            if start_time.count(':') == 1:
+                start_time = '00:' + start_time
+            if end_time.count(':') == 1:
+                end_time = '00:' + end_time
+
+            # Add timestamp range in bold
+            md_lines.append(f"**{start_time} - {end_time}**")
+
+            # Clean and add text
+            text = cue['text']
+            # Remove HTML tags
+            text = re.sub(r'<[^>]+>', '', text)
+            # Remove VTT formatting
+            text = re.sub(r'\{.*?\}', '', text)
+
+            # Preserve line breaks in multi-line subtitles
+            if '\n' in text:
+                # Multi-line text - preserve structure
+                lines = text.split('\n')
+                for line in lines:
+                    md_lines.append(line.strip())
+            else:
+                md_lines.append(text)
+
+            # Add blank line for readability
+            md_lines.append("")
+
+    else:
+        # Format without timestamps (similar to txt but with better structure)
+        text_parts = []
+        last_text = None
+
+        for cue in cues:
+            # Clean up text
+            text = cue['text']
+            # Remove HTML tags
+            text = re.sub(r'<[^>]+>', '', text)
+            # Remove VTT formatting
+            text = re.sub(r'\{.*?\}', '', text)
+            # Clean up extra whitespace
+            text = ' '.join(text.split())
+
+            # Skip duplicate text
+            if text and text != last_text:
+                text_parts.append(text)
+                last_text = text
+
+        # Group into paragraphs for better readability
+        current_paragraph = []
+        for text in text_parts:
+            if len(text) > 80 or text.endswith(('.', '!', '?')):
+                # End of sentence or long text
+                if current_paragraph:
+                    md_lines.append(' '.join(current_paragraph))
+                    md_lines.append("")
+                    current_paragraph = []
+                md_lines.append(text)
+                md_lines.append("")
+            else:
+                current_paragraph.append(text)
+
+        if current_paragraph:
+            md_lines.append(' '.join(current_paragraph))
+            md_lines.append("")
+
+    # Remove trailing empty lines and return
+    while md_lines and md_lines[-1] == "":
+        md_lines.pop()
+
+    return '\n'.join(md_lines)

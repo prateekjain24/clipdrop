@@ -18,7 +18,8 @@ from src.clipdrop.youtube import (
     get_video_info,
     parse_vtt,
     vtt_to_srt,
-    vtt_to_txt
+    vtt_to_txt,
+    vtt_to_md
 )
 
 
@@ -468,12 +469,15 @@ class TestCacheHelpers:
         # Test with special characters
         title = 'Test: Video <with> "Special" Characters/Slash\\Back|Question?'
         sanitized = sanitize_filename(title)
-        assert sanitized == 'Test_ Video _with_ _Special_ Characters_Slash_Back_Question_'
+        # Should be truncated to 30 chars after replacement
+        expected = 'Test_ Video _with_ _Special_ C'
+        assert sanitized == expected
+        assert len(sanitized) == 30
 
         # Test truncation
-        long_title = "a" * 250
+        long_title = "a" * 50
         sanitized = sanitize_filename(long_title)
-        assert len(sanitized) == 200
+        assert len(sanitized) == 30
 
         # Test leading/trailing spaces and dots
         title = "  .Test Title.  "
@@ -929,3 +933,107 @@ Line three
         """Test extracting from empty VTT."""
         assert vtt_to_txt("") == ""
         assert vtt_to_txt("WEBVTT") == ""
+
+
+class TestVTTToMarkdown:
+    """Test VTT to Markdown conversion."""
+
+    def test_convert_vtt_to_md_with_timestamps(self):
+        """Test converting VTT to Markdown with timestamps."""
+        vtt_content = """WEBVTT
+
+00:00:01.500 --> 00:00:04.500
+Hello, world!
+
+00:00:05.000 --> 00:00:08.000
+This is a test.
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=True)
+
+        assert "# Transcript" in md_content
+        assert "**00:00:01 - 00:00:04**" in md_content
+        assert "Hello, world!" in md_content
+        assert "**00:00:05 - 00:00:08**" in md_content
+        assert "This is a test." in md_content
+
+    def test_convert_vtt_to_md_without_timestamps(self):
+        """Test converting VTT to Markdown without timestamps."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+This is a complete sentence.
+
+00:00:05.000 --> 00:00:08.000
+This is another complete sentence.
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=False)
+
+        assert "# Transcript" in md_content
+        assert "This is a complete sentence." in md_content
+        assert "This is another complete sentence." in md_content
+        assert "**00:00" not in md_content  # No timestamps
+
+    def test_convert_vtt_to_md_with_multi_line(self):
+        """Test converting VTT with multi-line text to Markdown."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Line one
+Line two
+Line three
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=True)
+
+        assert "# Transcript" in md_content
+        assert "Line one" in md_content
+        assert "Line two" in md_content
+        assert "Line three" in md_content
+
+    def test_convert_vtt_to_md_clean_html(self):
+        """Test that HTML tags are removed in Markdown conversion."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+<b>Bold text</b> and <i>italic text</i>
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=True)
+
+        assert "Bold text and italic text" in md_content
+        assert "<b>" not in md_content
+        assert "<i>" not in md_content
+
+    def test_convert_vtt_to_md_without_hours(self):
+        """Test converting VTT without hours to Markdown."""
+        vtt_content = """WEBVTT
+
+01:30.000 --> 01:35.000
+Short timestamp format
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=True)
+
+        assert "**00:01:30 - 00:01:35**" in md_content
+        assert "Short timestamp format" in md_content
+
+    def test_convert_vtt_to_md_paragraph_grouping(self):
+        """Test paragraph grouping in Markdown without timestamps."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+Short line 1
+
+00:00:03.000 --> 00:00:04.000
+Short line 2
+
+00:00:05.000 --> 00:00:08.000
+This is a longer complete sentence that should be on its own.
+"""
+        md_content = vtt_to_md(vtt_content, include_timestamps=False)
+
+        assert "# Transcript" in md_content
+        assert "Short line 1 Short line 2" in md_content
+        assert "This is a longer complete sentence that should be on its own." in md_content
+
+    def test_convert_empty_vtt_to_md(self):
+        """Test converting empty VTT to Markdown."""
+        assert vtt_to_md("") == ""
+        assert vtt_to_md("WEBVTT") == ""
