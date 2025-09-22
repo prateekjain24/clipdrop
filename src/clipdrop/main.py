@@ -16,6 +16,24 @@ from clipdrop.paranoid import (
     paranoid_gate,
     print_binary_skip_notice,
 )
+from clipdrop.youtube import (
+    validate_youtube_url,
+    extract_video_id,
+    list_captions,
+    select_caption_track,
+    download_vtt,
+    get_video_info,
+    vtt_to_srt,
+    vtt_to_txt,
+    vtt_to_md,
+    sanitize_filename
+)
+from clipdrop.exceptions import (
+    YTDLPNotFoundError,
+    YouTubeURLError,
+    NoCaptionsError,
+    YouTubeError
+)
 
 console = Console()
 
@@ -25,6 +43,156 @@ def version_callback(value: bool):
     if value:
         console.print(f"[cyan]clipdrop version {__version__}[/cyan]")
         raise typer.Exit()
+
+
+def handle_youtube_transcript(
+    filename: str,
+    paranoid_flag: bool = False,
+    force: bool = False,
+    preview: bool = False,
+    paranoid_mode: Optional[ParanoidMode] = None,
+    lang: Optional[str] = None
+) -> None:
+    """
+    Handle YouTube transcript download command.
+
+    Args:
+        filename: Target filename (e.g., 'transcript', 'transcript.srt')
+        paranoid_flag: Whether paranoid mode is enabled via flag
+        force: Whether to force overwrite existing files
+        preview: Whether to preview content before saving
+        paranoid_mode: Paranoid mode setting
+        lang: Preferred subtitle language code
+    """
+    # Get clipboard content
+    url = clipboard.get_text()
+    if not url or not url.strip():
+        display_error('empty_clipboard')
+        raise typer.Exit(1)
+
+    url = url.strip()
+
+    # Validate YouTube URL
+    if not validate_youtube_url(url):
+        console.print("[red]❌ No YouTube URL in clipboard[/red]")
+        if len(url) > 100:
+            console.print(f"[yellow]Found: {url[:100]}...[/yellow]")
+        else:
+            console.print(f"[yellow]Found: {url}[/yellow]")
+        console.print("\n[dim]Please copy a YouTube URL first, then try again.[/dim]")
+        console.print("[dim]Examples: youtube.com/watch?v=..., youtu.be/..., youtube.com/shorts/...[/dim]")
+        raise typer.Exit(1)
+
+    try:
+        # Extract video ID and get video info
+        video_id = extract_video_id(url)
+        console.print(f"[cyan]🎥 Found YouTube video: {video_id}[/cyan]")
+
+        # Get video information
+        video_info = get_video_info(url)
+        title = video_info.get('title', 'Unknown Title')
+        console.print(f"[cyan]📺 Title: {title}[/cyan]")
+
+        # List available captions
+        console.print("[cyan]🔍 Checking available captions...[/cyan]")
+        captions = list_captions(url)
+
+        if not captions:
+            raise NoCaptionsError(video_id)
+
+        # Select caption track
+        selected = select_caption_track(captions, lang)
+        if not selected:
+            raise NoCaptionsError(f"No captions available for language: {lang}")
+
+        lang_code, lang_name, is_auto = selected
+        caption_type = "(auto-generated)" if is_auto else "(manual)"
+        console.print(f"[green]✓ Selected: {lang_name} {caption_type}[/green]")
+
+        # Download VTT
+        console.print(f"[cyan]📥 Downloading captions...[/cyan]")
+        vtt_path = download_vtt(url, lang_code)
+
+        # Read VTT content
+        with open(vtt_path, 'r', encoding='utf-8') as f:
+            vtt_content = f.read()
+
+        # Determine output format from filename
+        file_path = Path(filename)
+        if file_path.suffix:
+            ext = file_path.suffix.lower()
+            output_filename = filename
+        else:
+            # Default to .srt if no extension
+            ext = '.srt'
+            output_filename = f"{filename}.srt"
+
+        # Convert to requested format
+        if ext == '.srt':
+            content = vtt_to_srt(vtt_content)
+        elif ext == '.vtt':
+            content = vtt_content
+        elif ext == '.txt':
+            content = vtt_to_txt(vtt_content)
+        elif ext == '.md':
+            content = vtt_to_md(vtt_content)
+        else:
+            # Default to SRT for unknown extensions
+            content = vtt_to_srt(vtt_content)
+            console.print(f"[yellow]⚠️ Unknown format '{ext}', using SRT format[/yellow]")
+
+        # Apply paranoid mode if enabled
+        active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if paranoid_flag else None)
+        if active_paranoid and ext in ['.txt', '.md', '.srt']:
+            content = paranoid_gate(content, active_paranoid, output_filename)
+            if content is None:
+                console.print("[yellow]⚠️ Content not saved (paranoid mode)[/yellow]")
+                raise typer.Exit(0)
+
+        # Preview if requested
+        if preview:
+            console.print("\n[bold cyan]Preview:[/bold cyan]")
+            preview_lines = content.split('\n')[:20]
+            for line in preview_lines:
+                console.print(f"  {line}")
+            if len(content.split('\n')) > 20:
+                console.print(f"  [dim]... ({len(content.split('\n'))} total lines)[/dim]")
+
+            if not Confirm.ask("\n[yellow]Save this content?[/yellow]"):
+                console.print("[yellow]Cancelled[/yellow]")
+                raise typer.Exit(0)
+
+        # Check if file exists and handle overwrite
+        output_path = Path(output_filename)
+        if output_path.exists() and not force:
+            if not Confirm.ask(f"[yellow]File '{output_filename}' already exists. Overwrite?[/yellow]"):
+                console.print("[yellow]Cancelled[/yellow]")
+                raise typer.Exit(0)
+
+        # Save the file
+        files.save_text(content, output_filename, force=True)
+
+        # Show success message
+        console.print(f"[green]✅ Transcript saved to '{output_filename}'[/green]")
+        file_size = len(content.encode('utf-8'))
+        size_str = f"{file_size:,} bytes" if file_size < 1024 else f"{file_size/1024:.1f} KB"
+        console.print(f"[dim]   Format: {ext[1:].upper()} | Size: {size_str} | Language: {lang_name}[/dim]")
+
+    except YTDLPNotFoundError:
+        console.print("[red]❌ yt-dlp is not installed[/red]")
+        console.print("[yellow]Install with: pip install 'clipdrop[youtube]'[/yellow]")
+        console.print("[dim]Or: pip install yt-dlp[/dim]")
+        raise typer.Exit(1)
+    except NoCaptionsError as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        console.print("[dim]This video may not have captions available.[/dim]")
+        raise typer.Exit(1)
+    except YouTubeError as e:
+        console.print(f"[red]❌ YouTube error: {str(e)}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {str(e)}[/red]")
+        raise typer.Exit(1)
 
 
 def main(
@@ -129,8 +297,20 @@ def main(
         console.print("  clipdrop notes.txt    # Save text")
         console.print("  clipdrop image.png    # Save image")
         console.print("  clipdrop data.json    # Save JSON")
+        console.print("  clipdrop transcript  # Download YouTube transcript")
         console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
         raise typer.Exit(1)
+
+    # Check if this is a transcript command
+    if filename.lower().startswith('transcript'):
+        return handle_youtube_transcript(
+            filename=filename,
+            paranoid_flag=paranoid_flag,
+            force=force,
+            preview=preview,
+            paranoid_mode=paranoid_mode,
+            lang=None  # Could add --lang option later
+        )
 
     try:
         # Determine content type in clipboard
