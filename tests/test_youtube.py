@@ -15,7 +15,10 @@ from src.clipdrop.youtube import (
     ensure_cache_dir,
     sanitize_filename,
     download_vtt,
-    get_video_info
+    get_video_info,
+    parse_vtt,
+    vtt_to_srt,
+    vtt_to_txt
 )
 
 
@@ -684,3 +687,245 @@ class TestVideoInfo:
 
         with pytest.raises(YTDLPNotFoundError):
             get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+
+class TestVTTParser:
+    """Test VTT parsing functionality."""
+
+    def test_parse_basic_vtt(self):
+        """Test parsing basic VTT content."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Hello, world!
+
+00:00:05.000 --> 00:00:08.000
+This is a test subtitle.
+"""
+        cues = parse_vtt(vtt_content)
+
+        assert len(cues) == 2
+        assert cues[0]['start_time'] == '00:00:01.000'
+        assert cues[0]['end_time'] == '00:00:04.000'
+        assert cues[0]['text'] == 'Hello, world!'
+        assert cues[1]['text'] == 'This is a test subtitle.'
+
+    def test_parse_vtt_with_cue_identifiers(self):
+        """Test parsing VTT with cue identifiers."""
+        vtt_content = """WEBVTT
+
+cue-1
+00:00:01.000 --> 00:00:04.000
+First subtitle
+
+cue-2
+00:00:05.000 --> 00:00:08.000
+Second subtitle
+"""
+        cues = parse_vtt(vtt_content)
+
+        assert len(cues) == 2
+        assert cues[0]['text'] == 'First subtitle'
+        assert cues[1]['text'] == 'Second subtitle'
+
+    def test_parse_vtt_with_multi_line_text(self):
+        """Test parsing VTT with multi-line subtitle text."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+This is line one
+This is line two
+This is line three
+"""
+        cues = parse_vtt(vtt_content)
+
+        assert len(cues) == 1
+        assert cues[0]['text'] == 'This is line one\nThis is line two\nThis is line three'
+
+    def test_parse_vtt_with_notes_and_styles(self):
+        """Test parsing VTT with NOTE and STYLE blocks."""
+        vtt_content = """WEBVTT
+
+NOTE
+This is a comment
+
+STYLE
+::cue { color: white; }
+
+00:00:01.000 --> 00:00:04.000
+Actual subtitle text
+"""
+        cues = parse_vtt(vtt_content)
+
+        assert len(cues) == 1
+        assert cues[0]['text'] == 'Actual subtitle text'
+
+    def test_parse_empty_vtt(self):
+        """Test parsing empty VTT content."""
+        assert parse_vtt("") == []
+        assert parse_vtt("WEBVTT") == []
+        assert parse_vtt("WEBVTT\n\n") == []
+
+
+class TestVTTToSRT:
+    """Test VTT to SRT conversion."""
+
+    def test_convert_basic_vtt_to_srt(self):
+        """Test converting basic VTT to SRT."""
+        vtt_content = """WEBVTT
+
+00:00:01.500 --> 00:00:04.500
+Hello, world!
+
+00:00:05.000 --> 00:00:08.000
+This is subtitle 2.
+"""
+        srt_content = vtt_to_srt(vtt_content)
+
+        expected = """1
+00:00:01,500 --> 00:00:04,500
+Hello, world!
+
+2
+00:00:05,000 --> 00:00:08,000
+This is subtitle 2."""
+
+        assert srt_content == expected
+
+    def test_convert_vtt_with_cue_ids(self):
+        """Test converting VTT with cue identifiers to SRT."""
+        vtt_content = """WEBVTT
+
+cue-1
+00:00:01.000 --> 00:00:04.000
+First subtitle
+
+cue-2
+00:00:05.000 --> 00:00:08.000
+Second subtitle
+"""
+        srt_content = vtt_to_srt(vtt_content)
+
+        assert "1\n00:00:01,000 --> 00:00:04,000\nFirst subtitle" in srt_content
+        assert "2\n00:00:05,000 --> 00:00:08,000\nSecond subtitle" in srt_content
+
+    def test_convert_vtt_with_html_tags(self):
+        """Test converting VTT with HTML tags."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+<b>Bold text</b> and <i>italic text</i>
+"""
+        srt_content = vtt_to_srt(vtt_content)
+
+        assert "Bold text and italic text" in srt_content
+        assert "<b>" not in srt_content
+        assert "<i>" not in srt_content
+
+    def test_convert_vtt_without_hours(self):
+        """Test converting VTT timestamps without hours."""
+        vtt_content = """WEBVTT
+
+01:30.000 --> 01:35.000
+Short format timestamp
+"""
+        srt_content = vtt_to_srt(vtt_content)
+
+        assert "00:01:30,000 --> 00:01:35,000" in srt_content
+
+    def test_convert_empty_vtt(self):
+        """Test converting empty VTT."""
+        assert vtt_to_srt("") == ""
+        assert vtt_to_srt("WEBVTT") == ""
+
+
+class TestVTTToTXT:
+    """Test VTT to plain text extraction."""
+
+    def test_extract_basic_text(self):
+        """Test extracting basic text from VTT."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Hello, world!
+
+00:00:05.000 --> 00:00:08.000
+This is a test.
+"""
+        text = vtt_to_txt(vtt_content, preserve_paragraphs=False)
+
+        assert text == "Hello, world! This is a test."
+
+    def test_extract_text_with_paragraphs(self):
+        """Test extracting text with paragraph preservation."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+This is a complete sentence.
+
+00:00:05.000 --> 00:00:08.000
+This is another complete sentence.
+
+00:00:09.000 --> 00:00:12.000
+Short line
+
+00:00:13.000 --> 00:00:15.000
+Another short
+"""
+        text = vtt_to_txt(vtt_content, preserve_paragraphs=True)
+
+        assert "This is a complete sentence." in text
+        assert "This is another complete sentence." in text
+        # Short lines should be grouped
+        assert "Short line Another short" in text
+
+    def test_extract_text_remove_duplicates(self):
+        """Test that duplicate text is removed."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Same text
+
+00:00:04.000 --> 00:00:07.000
+Same text
+
+00:00:08.000 --> 00:00:10.000
+Different text
+"""
+        text = vtt_to_txt(vtt_content, preserve_paragraphs=False)
+
+        assert text == "Same text Different text"
+
+    def test_extract_text_clean_html(self):
+        """Test extracting text with HTML tag removal."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+<b>Bold</b> and <i>italic</i> text
+
+00:00:05.000 --> 00:00:08.000
+<font color="red">Colored text</font>
+"""
+        text = vtt_to_txt(vtt_content, preserve_paragraphs=False)
+
+        assert text == "Bold and italic text Colored text"
+        assert "<" not in text
+        assert ">" not in text
+
+    def test_extract_text_multi_line(self):
+        """Test extracting multi-line subtitle text."""
+        vtt_content = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+Line one
+Line two
+Line three
+"""
+        text = vtt_to_txt(vtt_content, preserve_paragraphs=False)
+
+        assert text == "Line one Line two Line three"
+
+    def test_extract_empty_vtt(self):
+        """Test extracting from empty VTT."""
+        assert vtt_to_txt("") == ""
+        assert vtt_to_txt("WEBVTT") == ""

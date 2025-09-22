@@ -550,3 +550,221 @@ def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
         raise YTDLPNotFoundError()
     except (json.JSONDecodeError, IndexError) as e:
         raise YouTubeError(f"Failed to parse video information: {str(e)}")
+
+
+def parse_vtt(vtt_content: str) -> List[Dict[str, Any]]:
+    """
+    Parse VTT content into structured data.
+
+    Args:
+        vtt_content: The VTT file content as a string
+
+    Returns:
+        List of cue dictionaries with start_time, end_time, and text
+    """
+    if not vtt_content:
+        return []
+
+    cues = []
+    lines = vtt_content.strip().split('\n')
+
+    # Skip WEBVTT header and any metadata
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith('WEBVTT'):
+            i += 1
+            continue
+        if line.startswith('NOTE') or line.startswith('STYLE'):
+            # Skip NOTE and STYLE blocks
+            i += 1
+            while i < len(lines) and lines[i].strip():
+                i += 1
+            continue
+        break
+
+    # Parse cues
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip empty lines
+        if not line:
+            i += 1
+            continue
+
+        # Check if this is a timestamp line or cue identifier
+        # Pattern handles both HH:MM:SS.mmm and MM:SS.mmm formats
+        timestamp_pattern = r'(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[.,]\d{3})'
+        timestamp_match = re.search(timestamp_pattern, line)
+
+        if timestamp_match:
+            # Found timestamp directly
+            start_time = timestamp_match.group(1).replace(',', '.')
+            end_time = timestamp_match.group(2).replace(',', '.')
+
+            # Collect subtitle text
+            i += 1
+            text_lines = []
+            while i < len(lines) and lines[i].strip() and not re.search(timestamp_pattern, lines[i]):
+                text_lines.append(lines[i].strip())
+                i += 1
+
+            cues.append({
+                'start_time': start_time,
+                'end_time': end_time,
+                'text': '\n'.join(text_lines)
+            })
+        else:
+            # This might be a cue identifier, check next line for timestamp
+            if i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                timestamp_match = re.search(timestamp_pattern, next_line)
+                if timestamp_match:
+                    # Skip cue identifier and move to timestamp line
+                    start_time = timestamp_match.group(1).replace(',', '.')
+                    end_time = timestamp_match.group(2).replace(',', '.')
+
+                    # Collect subtitle text (starting from line after timestamp)
+                    i += 2
+                    text_lines = []
+                    while i < len(lines) and lines[i].strip() and not re.search(timestamp_pattern, lines[i]):
+                        text_lines.append(lines[i].strip())
+                        i += 1
+
+                    cues.append({
+                        'start_time': start_time,
+                        'end_time': end_time,
+                        'text': '\n'.join(text_lines)
+                    })
+                else:
+                    i += 1
+            else:
+                i += 1
+
+    return cues
+
+
+def vtt_to_srt(vtt_content: str) -> str:
+    """
+    Convert VTT subtitle content to SRT format.
+
+    Args:
+        vtt_content: The VTT file content as a string
+
+    Returns:
+        The converted SRT content as a string
+
+    Conversion includes:
+    - Removing WEBVTT header
+    - Adding sequence numbers
+    - Converting timestamps from . to ,
+    - Removing VTT-specific formatting
+    """
+    if not vtt_content or not vtt_content.strip():
+        return ""
+
+    # Parse VTT into structured data
+    cues = parse_vtt(vtt_content)
+
+    if not cues:
+        return ""
+
+    srt_lines = []
+    for i, cue in enumerate(cues, start=1):
+        # Add sequence number
+        srt_lines.append(str(i))
+
+        # Convert timestamps (replace . with ,)
+        start_time = cue['start_time'].replace('.', ',')
+        end_time = cue['end_time'].replace('.', ',')
+
+        # Ensure timestamps have hours:minutes:seconds,milliseconds format
+        if start_time.count(':') == 1:  # Missing hours
+            start_time = '00:' + start_time
+        if end_time.count(':') == 1:  # Missing hours
+            end_time = '00:' + end_time
+
+        srt_lines.append(f"{start_time} --> {end_time}")
+
+        # Add text (clean up any HTML tags)
+        text = cue['text']
+        # Remove common HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Remove VTT positioning tags
+        text = re.sub(r'\{.*?\}', '', text)
+
+        srt_lines.append(text)
+
+        # Add blank line separator (except for the last entry)
+        if i < len(cues):
+            srt_lines.append("")
+
+    return '\n'.join(srt_lines)
+
+
+def vtt_to_txt(vtt_content: str, preserve_paragraphs: bool = True) -> str:
+    """
+    Extract plain text from VTT subtitle content.
+
+    Args:
+        vtt_content: The VTT file content as a string
+        preserve_paragraphs: Whether to add paragraph breaks for readability
+
+    Returns:
+        The extracted plain text
+
+    Extraction includes:
+    - Removing all timestamps and cue identifiers
+    - Stripping HTML and formatting tags
+    - Concatenating text with appropriate spacing
+    """
+    if not vtt_content or not vtt_content.strip():
+        return ""
+
+    # Parse VTT into structured data
+    cues = parse_vtt(vtt_content)
+
+    if not cues:
+        return ""
+
+    text_parts = []
+    last_text = None
+
+    for cue in cues:
+        # Clean up text
+        text = cue['text']
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Remove VTT formatting
+        text = re.sub(r'\{.*?\}', '', text)
+        # Clean up extra whitespace
+        text = ' '.join(text.split())
+
+        # Skip duplicate text (when same subtitle appears multiple times)
+        if text and text != last_text:
+            text_parts.append(text)
+            last_text = text
+
+    if preserve_paragraphs:
+        # Join with paragraph breaks for better readability
+        # Group consecutive short lines as paragraphs
+        result = []
+        current_paragraph = []
+
+        for text in text_parts:
+            if len(text) > 80 or text.endswith(('.', '!', '?')):
+                # End of sentence or long text, start new paragraph
+                if current_paragraph:
+                    result.append(' '.join(current_paragraph))
+                    current_paragraph = []
+                result.append(text)
+            else:
+                current_paragraph.append(text)
+
+        if current_paragraph:
+            result.append(' '.join(current_paragraph))
+
+        return '\n\n'.join(result)
+    else:
+        # Simple concatenation with spaces
+        return ' '.join(text_parts)
