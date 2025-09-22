@@ -2,6 +2,31 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
+struct Args {
+  var lang: String? = nil
+  var jsonl: Bool = true
+}
+
+func parseArgs() -> Args {
+  var args = Args()
+  var iterator = CommandLine.arguments.dropFirst().makeIterator()
+
+  while let token = iterator.next() {
+    switch token {
+    case "--lang":
+      if let value = iterator.next() {
+        args.lang = value
+      }
+    case "--no-jsonl":
+      args.jsonl = false
+    default:
+      break
+    }
+  }
+
+  return args
+}
+
 func requirePlatformOrExit() {
   guard #available(macOS 15.4, *) else {
     fputs("On-device transcription requires macOS 15.4+.\n", stderr)
@@ -65,14 +90,15 @@ private extension String {
 struct ClipdropTranscribeClipboardApp {
   static func main() {
     requirePlatformOrExit()
+    let args = parseArgs()
 
     if let url = firstAudioFileURLFromPasteboard() {
-      print("Found audio file URL: \(url.path)")
+      print("Found audio file URL: \(url.path) (lang: \(args.lang ?? "default"), jsonl: \(args.jsonl))")
       exit(0)
     }
 
     if let tempURL = tempAudioFromPasteboard() {
-      print("Wrote clipboard audio to temporary file: \(tempURL.path)")
+      print("Wrote clipboard audio to temporary file: \(tempURL.path) (lang: \(args.lang ?? "default"), jsonl: \(args.jsonl))")
       exit(0)
     }
 
