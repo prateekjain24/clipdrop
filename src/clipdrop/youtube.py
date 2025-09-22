@@ -504,6 +504,7 @@ def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
             '--print', '%(description)j',
             '--print', '%(view_count)j',
             '--print', '%(like_count)j',
+            '--print', '%(chapters)j',
             url
         ]
 
@@ -519,7 +520,7 @@ def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
             raise YouTubeError(f"Failed to fetch video info: {error_msg}")
 
         lines = result.stdout.strip().split('\n')
-        if len(lines) < 8:
+        if len(lines) < 9:
             raise YouTubeError("Incomplete video information received")
 
         # Parse the output
@@ -532,6 +533,7 @@ def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
             'description': json.loads(lines[5]) if lines[5] != 'null' else '',
             'view_count': json.loads(lines[6]) if lines[6] != 'null' else 0,
             'like_count': json.loads(lines[7]) if lines[7] != 'null' else 0,
+            'chapters': json.loads(lines[8]) if lines[8] != 'null' else None,
             'url': url,
             'cached_at': datetime.now().isoformat()
         }

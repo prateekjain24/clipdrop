@@ -36,6 +36,73 @@ from clipdrop.exceptions import (
 console = Console()
 
 
+def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:
+    """
+    Add chapter markers to transcript content.
+
+    Args:
+        content: The transcript content
+        chapters: List of chapter dictionaries with 'title' and 'start_time' keys
+        format: The output format (.srt, .vtt, .txt, .md)
+
+    Returns:
+        Content with chapter markers added
+    """
+    if not chapters:
+        return content
+
+    # Build chapter header based on format
+    chapter_text = "\n=== CHAPTERS ===\n"
+    for chapter in chapters:
+        start_time = chapter.get('start_time', 0)
+        title = chapter.get('title', 'Chapter')
+        # Convert seconds to HH:MM:SS format
+        hours = int(start_time // 3600)
+        minutes = int((start_time % 3600) // 60)
+        seconds = int(start_time % 60)
+        time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        chapter_text += f"{time_str} - {title}\n"
+    chapter_text += "================\n\n"
+
+    if format == '.md':
+        # For Markdown, use proper header formatting
+        chapter_text = "\n## Chapters\n\n"
+        for chapter in chapters:
+            start_time = chapter.get('start_time', 0)
+            title = chapter.get('title', 'Chapter')
+            hours = int(start_time // 3600)
+            minutes = int((start_time % 3600) // 60)
+            seconds = int(start_time % 60)
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            chapter_text += f"- **{time_str}** - {title}\n"
+        chapter_text += "\n"
+    elif format == '.vtt':
+        # For VTT, add as a NOTE block at the beginning
+        chapter_text = "NOTE\nCHAPTERS:\n"
+        for chapter in chapters:
+            start_time = chapter.get('start_time', 0)
+            title = chapter.get('title', 'Chapter')
+            hours = int(start_time // 3600)
+            minutes = int((start_time % 3600) // 60)
+            seconds = int(start_time % 60)
+            time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            chapter_text += f"{time_str} - {title}\n"
+        chapter_text += "\n"
+        # Insert after WEBVTT header if present
+        if content.startswith('WEBVTT'):
+            lines = content.split('\n', 2)
+            if len(lines) >= 2:
+                content = lines[0] + '\n' + lines[1] + '\n\n' + chapter_text + (lines[2] if len(lines) > 2 else '')
+            else:
+                content = content + '\n\n' + chapter_text
+        else:
+            content = chapter_text + content
+        return content
+
+    # For all other formats, prepend the chapter list
+    return chapter_text + content
+
+
 def version_callback(value: bool):
     """Handle --version flag."""
     if value:
@@ -50,7 +117,8 @@ def handle_youtube_transcript(
     preview: bool = False,
     paranoid_mode: Optional[ParanoidMode] = None,
     lang: Optional[str] = None,
-    yes: bool = False
+    yes: bool = False,
+    chapters: bool = False
 ) -> None:
     """
     Handle YouTube transcript download command.
@@ -63,6 +131,7 @@ def handle_youtube_transcript(
         paranoid_mode: Paranoid mode setting
         lang: Preferred subtitle language code
         yes: Whether to auto-accept paranoid prompts
+        chapters: Whether to include chapter markers in transcript
     """
     # Get clipboard content
     url = clipboard.get_text()
@@ -103,6 +172,14 @@ def handle_youtube_transcript(
         # Select caption track
         selected = select_caption_track(captions, lang)
         if not selected:
+            # Show available languages to help user
+            if lang:
+                console.print(f"[yellow]⚠️ No captions found for language: '{lang}'[/yellow]")
+                console.print("\n[cyan]Available languages:[/cyan]")
+                for cap_lang, cap_name, is_auto in captions:
+                    auto_text = " (auto-generated)" if is_auto else ""
+                    console.print(f"  • {cap_lang}: {cap_name}{auto_text}")
+                console.print("\n[dim]Tip: Use --lang with one of the language codes above[/dim]")
             raise NoCaptionsError(f"No captions available for language: {lang}")
 
         lang_code, lang_name, is_auto = selected
@@ -140,6 +217,15 @@ def handle_youtube_transcript(
             # Default to SRT for unknown extensions
             content = vtt_to_srt(vtt_content)
             console.print(f"[yellow]⚠️ Unknown format '{ext}', using SRT format[/yellow]")
+
+        # Add chapter markers if requested and available
+        if chapters:
+            video_chapters = video_info.get('chapters')
+            if video_chapters:
+                console.print(f"[cyan]📑 Adding {len(video_chapters)} chapter markers...[/cyan]")
+                content = add_chapter_markers(content, video_chapters, ext)
+            elif chapters:
+                console.print("[yellow]⚠️ No chapters available for this video[/yellow]")
 
         # Apply paranoid mode if enabled (skip for VTT to preserve format)
         active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if paranoid_flag else None)
@@ -245,6 +331,16 @@ def main(
         "--educational/--no-educational",
         help="Enable educational content optimizations for better formatting in PDFs (justified text, callout boxes, enhanced spacing)"
     ),
+    lang: Optional[str] = typer.Option(
+        None,
+        "--lang",
+        help="Preferred language for YouTube captions (e.g., 'en', 'es', 'fr'). Shows available languages if not found"
+    ),
+    chapters: bool = typer.Option(
+        False,
+        "--chapters",
+        help="Include chapter markers as comments in transcript (if available)"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -315,8 +411,9 @@ def main(
             force=force,
             preview=preview,
             paranoid_mode=paranoid_mode,
-            lang=None,  # Could add --lang option later
-            yes=yes
+            lang=lang,
+            yes=yes,
+            chapters=chapters
         )
 
     try:

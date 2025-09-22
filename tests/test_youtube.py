@@ -633,7 +633,7 @@ class TestVideoInfo:
         # Mock yt-dlp response
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '"New Title"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Description"\n1000\n50'
+        mock_result.stdout = '"New Title"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Description"\n1000\n50\nnull'
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
@@ -654,7 +654,7 @@ class TestVideoInfo:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '"Test Video"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Test Description"\n1000000\n50000'
+        mock_result.stdout = '"Test Video"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Test Description"\n1000000\n50000\n[{"title":"Intro","start_time":0},{"title":"Main","start_time":60}]'
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
@@ -666,6 +666,9 @@ class TestVideoInfo:
         assert result['duration'] == 300
         assert result['view_count'] == 1000000
         assert result['like_count'] == 50000
+        assert result['chapters'] is not None
+        assert len(result['chapters']) == 2
+        assert result['chapters'][0]['title'] == 'Intro'
 
         # Check yt-dlp was called with correct parameters
         call_args = mock_run.call_args[0][0]
