@@ -4,7 +4,9 @@ import json
 import re
 import shutil
 import subprocess
-from typing import Optional, Tuple, List
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any
 
 
 def validate_youtube_url(url: str) -> bool:
@@ -276,3 +278,275 @@ def select_caption_track(
 
     # Return the best match
     return scored_captions[0][1] if scored_captions else None
+
+
+def get_cache_dir(video_id: str, base_cache_dir: Optional[str] = None) -> Path:
+    """
+    Get the cache directory path for a video.
+
+    Args:
+        video_id: The YouTube video ID
+        base_cache_dir: Base cache directory path (defaults to ~/.cache/clipdrop/youtube)
+
+    Returns:
+        Path object for the video's cache directory
+    """
+    if base_cache_dir:
+        base_path = Path(base_cache_dir)
+    else:
+        # Default cache location
+        base_path = Path.home() / ".cache" / "clipdrop" / "youtube"
+
+    return base_path / video_id
+
+
+def ensure_cache_dir(cache_dir: Path) -> None:
+    """
+    Ensure cache directory exists, create if necessary.
+
+    Args:
+        cache_dir: Path to the cache directory
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+
+def sanitize_filename(title: str) -> str:
+    """
+    Sanitize video title for use as filename.
+
+    Args:
+        title: Video title to sanitize
+
+    Returns:
+        Sanitized filename-safe string
+    """
+    # Replace problematic characters with underscore
+    invalid_chars = '<>:"/\\|?*'
+    for char in invalid_chars:
+        title = title.replace(char, '_')
+
+    # Remove leading/trailing spaces and dots
+    title = title.strip(' .')
+
+    # Truncate if too long (leave room for extensions)
+    max_length = 200
+    if len(title) > max_length:
+        title = title[:max_length].rstrip()
+
+    return title
+
+
+def download_vtt(
+    url: str,
+    lang_code: str,
+    cache_dir: Optional[str] = None
+) -> str:
+    """
+    Download VTT subtitles for a YouTube video.
+
+    Args:
+        url: The YouTube URL
+        lang_code: Language code for subtitles (e.g., 'en', 'es')
+        cache_dir: Optional cache directory path
+
+    Returns:
+        Path to the downloaded VTT file
+
+    Raises:
+        YTDLPNotFoundError: If yt-dlp is not installed
+        YouTubeURLError: If URL is invalid
+        NoCaptionsError: If no captions available for the language
+        YouTubeError: For other download errors
+    """
+    from .exceptions import YTDLPNotFoundError, YouTubeURLError, NoCaptionsError, YouTubeError
+
+    # Validate URL and get video ID
+    if not validate_youtube_url(url):
+        raise YouTubeURLError(url)
+
+    video_id = extract_video_id(url)
+    if not video_id:
+        raise YouTubeURLError(url)
+
+    # Check if yt-dlp is installed
+    is_installed, _ = check_ytdlp_installed()
+    if not is_installed:
+        raise YTDLPNotFoundError()
+
+    # Set up cache directory
+    video_cache_dir = get_cache_dir(video_id, cache_dir)
+    ensure_cache_dir(video_cache_dir)
+
+    # Check if VTT already exists in cache
+    vtt_filename = f"{video_id}.{lang_code}.vtt"
+    vtt_path = video_cache_dir / vtt_filename
+
+    if vtt_path.exists():
+        return str(vtt_path)
+
+    # Download VTT using yt-dlp
+    try:
+        # Build yt-dlp command
+        output_template = str(video_cache_dir / f"{video_id}.%(lang)s.%(ext)s")
+
+        cmd = [
+            'yt-dlp',
+            '--quiet',
+            '--no-warnings',
+            '--skip-download',  # Don't download video
+            '--write-sub',      # Write manual subtitles
+            '--write-auto-sub', # Write auto-generated if manual not available
+            '--sub-format', 'vtt',  # Force VTT format
+            '--sub-lang', lang_code,  # Specific language
+            '-o', output_template,  # Output template
+            url
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60  # 60 second timeout
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+
+            # Check if it's a "no subtitles" error
+            if "no subtitles" in error_msg.lower() or "subtitle" in error_msg.lower():
+                raise NoCaptionsError(f"No captions available for language: {lang_code}")
+
+            raise YouTubeError(f"Failed to download VTT: {error_msg}")
+
+        # Check if file was created
+        if not vtt_path.exists():
+            # Try with just the language code (without region)
+            alt_vtt_path = video_cache_dir / f"{video_id}.{lang_code.split('-')[0]}.vtt"
+            if alt_vtt_path.exists():
+                # Rename to expected name
+                alt_vtt_path.rename(vtt_path)
+            else:
+                raise NoCaptionsError(f"No captions downloaded for language: {lang_code}")
+
+        return str(vtt_path)
+
+    except subprocess.TimeoutExpired:
+        raise YouTubeError("Timeout while downloading VTT file")
+    except subprocess.CalledProcessError as e:
+        raise YouTubeError(f"Failed to run yt-dlp: {str(e)}")
+    except FileNotFoundError:
+        raise YTDLPNotFoundError()
+
+
+def get_video_info(url: str, cache_dir: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get video information from YouTube URL.
+
+    Args:
+        url: The YouTube URL
+        cache_dir: Optional cache directory path
+
+    Returns:
+        Dictionary containing video info (title, id, uploader, duration, etc.)
+
+    Raises:
+        YTDLPNotFoundError: If yt-dlp is not installed
+        YouTubeURLError: If URL is invalid
+        YouTubeError: For other errors
+    """
+    from .exceptions import YTDLPNotFoundError, YouTubeURLError, YouTubeError
+
+    # Validate URL and get video ID
+    if not validate_youtube_url(url):
+        raise YouTubeURLError(url)
+
+    video_id = extract_video_id(url)
+    if not video_id:
+        raise YouTubeURLError(url)
+
+    # Check if yt-dlp is installed
+    is_installed, _ = check_ytdlp_installed()
+    if not is_installed:
+        raise YTDLPNotFoundError()
+
+    # Set up cache directory
+    video_cache_dir = get_cache_dir(video_id, cache_dir)
+    ensure_cache_dir(video_cache_dir)
+
+    # Check if info already exists in cache
+    info_path = video_cache_dir / "info.json"
+
+    if info_path.exists():
+        try:
+            with open(info_path, 'r', encoding='utf-8') as f:
+                cached_info = json.load(f)
+                # Check if cache is recent (within 7 days)
+                if 'cached_at' in cached_info:
+                    cached_time = datetime.fromisoformat(cached_info['cached_at'])
+                    if (datetime.now() - cached_time).days < 7:
+                        return cached_info
+        except (json.JSONDecodeError, ValueError):
+            # Invalid cache, will re-fetch
+            pass
+
+    # Fetch video info using yt-dlp
+    try:
+        cmd = [
+            'yt-dlp',
+            '--quiet',
+            '--no-warnings',
+            '--skip-download',
+            '--print', '%(title)j',
+            '--print', '%(id)j',
+            '--print', '%(uploader)j',
+            '--print', '%(duration)j',
+            '--print', '%(upload_date)j',
+            '--print', '%(description)j',
+            '--print', '%(view_count)j',
+            '--print', '%(like_count)j',
+            url
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else "Unknown error"
+            raise YouTubeError(f"Failed to fetch video info: {error_msg}")
+
+        lines = result.stdout.strip().split('\n')
+        if len(lines) < 8:
+            raise YouTubeError("Incomplete video information received")
+
+        # Parse the output
+        video_info = {
+            'title': json.loads(lines[0]) if lines[0] != 'null' else 'Unknown Title',
+            'id': json.loads(lines[1]) if lines[1] != 'null' else video_id,
+            'uploader': json.loads(lines[2]) if lines[2] != 'null' else 'Unknown',
+            'duration': json.loads(lines[3]) if lines[3] != 'null' else 0,
+            'upload_date': json.loads(lines[4]) if lines[4] != 'null' else None,
+            'description': json.loads(lines[5]) if lines[5] != 'null' else '',
+            'view_count': json.loads(lines[6]) if lines[6] != 'null' else 0,
+            'like_count': json.loads(lines[7]) if lines[7] != 'null' else 0,
+            'url': url,
+            'cached_at': datetime.now().isoformat()
+        }
+
+        # Save to cache
+        with open(info_path, 'w', encoding='utf-8') as f:
+            json.dump(video_info, f, indent=2, ensure_ascii=False)
+
+        return video_info
+
+    except subprocess.TimeoutExpired:
+        raise YouTubeError("Timeout while fetching video information")
+    except subprocess.CalledProcessError as e:
+        raise YouTubeError(f"Failed to run yt-dlp: {str(e)}")
+    except FileNotFoundError:
+        raise YTDLPNotFoundError()
+    except (json.JSONDecodeError, IndexError) as e:
+        raise YouTubeError(f"Failed to parse video information: {str(e)}")

@@ -1,13 +1,21 @@
 """Tests for YouTube URL handling and yt-dlp integration."""
 
 import json
-from unittest.mock import patch, MagicMock
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import patch, MagicMock, mock_open
 from src.clipdrop.youtube import (
     validate_youtube_url,
     extract_video_id,
     check_ytdlp_installed,
     list_captions,
-    select_caption_track
+    select_caption_track,
+    get_cache_dir,
+    ensure_cache_dir,
+    sanitize_filename,
+    download_vtt,
+    get_video_info
 )
 
 
@@ -421,3 +429,258 @@ class TestCaptionSelection:
 
         selected = select_caption_track(captions, "en")
         assert selected == ("EN", "English", False)
+
+
+class TestCacheHelpers:
+    """Test cache helper functions."""
+
+    def test_get_cache_dir_default(self):
+        """Test getting cache directory with default path."""
+        video_id = "dQw4w9WgXcQ"
+        cache_dir = get_cache_dir(video_id)
+
+        expected = Path.home() / ".cache" / "clipdrop" / "youtube" / video_id
+        assert cache_dir == expected
+
+    def test_get_cache_dir_custom(self):
+        """Test getting cache directory with custom path."""
+        video_id = "dQw4w9WgXcQ"
+        custom_base = "/tmp/custom_cache"
+        cache_dir = get_cache_dir(video_id, custom_base)
+
+        expected = Path("/tmp/custom_cache") / video_id
+        assert cache_dir == expected
+
+    def test_ensure_cache_dir(self):
+        """Test cache directory creation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "test" / "nested" / "cache"
+            ensure_cache_dir(cache_path)
+
+            assert cache_path.exists()
+            assert cache_path.is_dir()
+
+    def test_sanitize_filename(self):
+        """Test filename sanitization."""
+        # Test with special characters
+        title = 'Test: Video <with> "Special" Characters/Slash\\Back|Question?'
+        sanitized = sanitize_filename(title)
+        assert sanitized == 'Test_ Video _with_ _Special_ Characters_Slash_Back_Question_'
+
+        # Test truncation
+        long_title = "a" * 250
+        sanitized = sanitize_filename(long_title)
+        assert len(sanitized) == 200
+
+        # Test leading/trailing spaces and dots
+        title = "  .Test Title.  "
+        sanitized = sanitize_filename(title)
+        assert sanitized == "Test Title"
+
+
+class TestVTTDownload:
+    """Test VTT download functionality."""
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    @patch('src.clipdrop.youtube.Path.exists')
+    def test_download_vtt_from_cache(self, mock_exists, mock_check, mock_run):
+        """Test returning VTT from cache when it exists."""
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_exists.return_value = True
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = download_vtt(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "en",
+                tmpdir
+            )
+
+            # Should return cached path without running yt-dlp
+            assert "dQw4w9WgXcQ.en.vtt" in result
+            mock_run.assert_not_called()
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    @patch('src.clipdrop.youtube.Path.exists')
+    @patch('src.clipdrop.youtube.ensure_cache_dir')
+    def test_download_vtt_new(self, mock_ensure, mock_exists, mock_check, mock_run):
+        """Test downloading new VTT file."""
+        mock_check.return_value = (True, "yt-dlp found")
+        # First call checks cache (doesn't exist), second checks after download
+        mock_exists.side_effect = [False, True]
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = download_vtt(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "en",
+                tmpdir
+            )
+
+            assert "dQw4w9WgXcQ.en.vtt" in result
+            mock_run.assert_called_once()
+
+            # Check yt-dlp command
+            call_args = mock_run.call_args[0][0]
+            assert 'yt-dlp' in call_args
+            assert '--skip-download' in call_args
+            assert '--sub-format' in call_args
+            assert 'vtt' in call_args
+            assert '--sub-lang' in call_args
+            assert 'en' in call_args
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_download_vtt_no_captions(self, mock_check, mock_run):
+        """Test handling when no captions are available."""
+        import pytest
+        from src.clipdrop.exceptions import NoCaptionsError
+
+        mock_check.return_value = (True, "yt-dlp found")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+        mock_result.stderr = "No subtitles found"
+        mock_run.return_value = mock_result
+
+        with pytest.raises(NoCaptionsError):
+            download_vtt("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "en")
+
+    def test_download_vtt_invalid_url(self):
+        """Test downloading VTT with invalid URL."""
+        import pytest
+        from src.clipdrop.exceptions import YouTubeURLError
+
+        with pytest.raises(YouTubeURLError):
+            download_vtt("https://vimeo.com/123456789", "en")
+
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_download_vtt_ytdlp_not_installed(self, mock_check):
+        """Test downloading VTT when yt-dlp is not installed."""
+        import pytest
+        from src.clipdrop.exceptions import YTDLPNotFoundError
+
+        mock_check.return_value = (False, "yt-dlp not found")
+
+        with pytest.raises(YTDLPNotFoundError):
+            download_vtt("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "en")
+
+
+class TestVideoInfo:
+    """Test video info fetching functionality."""
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('src.clipdrop.youtube.Path.exists')
+    @patch('src.clipdrop.youtube.ensure_cache_dir')
+    def test_get_video_info_from_cache(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+        """Test returning video info from cache."""
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_exists.return_value = True
+
+        cached_data = {
+            'title': 'Test Video',
+            'id': 'dQw4w9WgXcQ',
+            'cached_at': datetime.now().isoformat()
+        }
+        mock_file_open.return_value.read.return_value = json.dumps(cached_data)
+
+        # Configure mock to properly handle json.load
+        mock_file_open.return_value.__enter__.return_value.read.return_value = json.dumps(cached_data)
+
+        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+        assert result['title'] == 'Test Video'
+        assert result['id'] == 'dQw4w9WgXcQ'
+        mock_run.assert_not_called()
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('src.clipdrop.youtube.Path.exists')
+    @patch('src.clipdrop.youtube.ensure_cache_dir')
+    def test_get_video_info_expired_cache(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+        """Test fetching new info when cache is expired."""
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_exists.return_value = True
+
+        # Create expired cache (8 days old)
+        old_time = datetime.now() - timedelta(days=8)
+        cached_data = {
+            'title': 'Old Title',
+            'id': 'dQw4w9WgXcQ',
+            'cached_at': old_time.isoformat()
+        }
+
+        # Configure mock to handle json.load for reading
+        mock_file_open.return_value.__enter__.return_value.read.return_value = json.dumps(cached_data)
+
+        # Mock yt-dlp response
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = '"New Title"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Description"\n1000\n50'
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
+        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+        assert result['title'] == 'New Title'
+        mock_run.assert_called_once()
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('src.clipdrop.youtube.Path.exists')
+    @patch('src.clipdrop.youtube.ensure_cache_dir')
+    def test_get_video_info_new(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+        """Test fetching new video info."""
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_exists.return_value = False
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = '"Test Video"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Test Description"\n1000000\n50000'
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
+        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+
+        assert result['title'] == 'Test Video'
+        assert result['id'] == 'dQw4w9WgXcQ'
+        assert result['uploader'] == 'TestUser'
+        assert result['duration'] == 300
+        assert result['view_count'] == 1000000
+        assert result['like_count'] == 50000
+
+        # Check yt-dlp was called with correct parameters
+        call_args = mock_run.call_args[0][0]
+        assert 'yt-dlp' in call_args
+        assert '--skip-download' in call_args
+        assert '--print' in call_args
+
+    def test_get_video_info_invalid_url(self):
+        """Test getting info with invalid URL."""
+        import pytest
+        from src.clipdrop.exceptions import YouTubeURLError
+
+        with pytest.raises(YouTubeURLError):
+            get_video_info("https://vimeo.com/123456789")
+
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_get_video_info_ytdlp_not_installed(self, mock_check):
+        """Test getting info when yt-dlp is not installed."""
+        import pytest
+        from src.clipdrop.exceptions import YTDLPNotFoundError
+
+        mock_check.return_value = (False, "yt-dlp not found")
+
+        with pytest.raises(YTDLPNotFoundError):
+            get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
