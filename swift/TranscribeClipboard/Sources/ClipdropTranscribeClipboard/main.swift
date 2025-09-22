@@ -2,6 +2,13 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
+func requirePlatformOrExit() {
+  guard #available(macOS 15.4, *) else {
+    fputs("On-device transcription requires macOS 15.4+.\n", stderr)
+    exit(2)
+  }
+}
+
 /// Returns the first audio file URL found on the general pasteboard.
 /// Prefers UTType-based checks and falls back to a light extension check.
 func firstAudioFileURLFromPasteboard() -> URL? {
@@ -42,7 +49,6 @@ func tempAudioFromPasteboard() -> URL? {
         try data.write(to: destination, options: [.atomic])
         return destination
       } catch {
-        // If writing fails, try the next matching item/type.
         continue
       }
     }
@@ -58,16 +64,19 @@ private extension String {
 @main
 struct ClipdropTranscribeClipboardApp {
   static func main() {
+    requirePlatformOrExit()
+
     if let url = firstAudioFileURLFromPasteboard() {
       print("Found audio file URL: \(url.path)")
-      return
+      exit(0)
     }
 
     if let tempURL = tempAudioFromPasteboard() {
       print("Wrote clipboard audio to temporary file: \(tempURL.path)")
-      return
+      exit(0)
     }
 
     fputs("No audio file URL or raw audio data found on the clipboard.\n", stderr)
+    exit(1)
   }
 }
