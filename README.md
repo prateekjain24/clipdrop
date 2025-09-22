@@ -338,3 +338,5 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 ---
 
 **Current Version**: 0.50 | **Status**: Available on PyPI 
+
+NOT RELATED to https://clipdrop.co/
