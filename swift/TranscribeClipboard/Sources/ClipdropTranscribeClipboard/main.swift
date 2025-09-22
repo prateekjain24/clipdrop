@@ -44,14 +44,17 @@ func firstAudioFileURLFromPasteboard() -> URL? {
   guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
 
   for item in items {
+    if let data = item.data(forType: .fileURL),
+       let url = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL?,
+       url.isAudioFile {
+      return url
+    }
+
     if let value = item.string(forType: .fileURL), let url = URL(string: value) {
-      if let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType,
-         contentType.conforms(to: .audio) {
-        return url
-      }
-      if [".m4a", ".mp3", ".wav", ".aiff", ".caf"].contains(url.pathExtension.lowercased().withDot) {
-        return url
-      }
+      if url.isAudioFile { return url }
+    } else if let value = item.string(forType: .fileURL) {
+      let url = URL(fileURLWithPath: value)
+      if url.isAudioFile { return url }
     }
   }
 
@@ -128,6 +131,17 @@ private extension String {
       .replacingOccurrences(of: "\"", with: "\\\"")
       .replacingOccurrences(of: "\n", with: "\\n")
     return "\"\(escaped)\""
+  }
+}
+
+private extension URL {
+  var isAudioFile: Bool {
+    if let contentType = try? resourceValues(forKeys: [.contentTypeKey]).contentType,
+       contentType.conforms(to: .audio) {
+      return true
+    }
+
+    return [".m4a", ".mp3", ".wav", ".aiff", ".caf"].contains(pathExtension.lowercased().withDot)
   }
 }
 
