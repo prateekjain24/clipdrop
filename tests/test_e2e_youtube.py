@@ -1,10 +1,7 @@
 """End-to-end tests for YouTube functionality with real URLs."""
 
 import os
-import tempfile
-from pathlib import Path
 import pytest
-import subprocess
 import requests
 
 from clipdrop.youtube import (
@@ -32,7 +29,7 @@ def network_available():
     try:
         response = requests.get("https://www.youtube.com", timeout=5)
         return response.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -54,7 +51,7 @@ class TestE2EYouTube:
 
     def test_validate_real_url(self):
         """Test URL validation with real YouTube URL."""
-        assert validate_youtube_url(TEST_VIDEO_URL) == True
+        assert validate_youtube_url(TEST_VIDEO_URL)
         assert extract_video_id(TEST_VIDEO_URL) == TEST_VIDEO_ID
 
     def test_get_video_info_real(self):
@@ -156,7 +153,7 @@ class TestE2EYouTube:
     def test_full_workflow_with_caching(self):
         """Test full workflow including caching."""
         # First download
-        info1 = get_video_info(TEST_VIDEO_URL)
+        get_video_info(TEST_VIDEO_URL)  # Cache video info
         captions1 = list_captions(TEST_VIDEO_URL)
 
         # Select a caption

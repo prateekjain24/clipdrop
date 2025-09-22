@@ -1,8 +1,6 @@
 """Tests for YouTube CLI integration."""
 
-import json
 from unittest.mock import MagicMock, patch
-import pytest
 from typer.testing import CliRunner
 from clipdrop.main import app
 
