@@ -51,4 +51,4 @@ jobs:
           exit 1
         fi
         echo "TWINE_PASSWORD length: ${#TWINE_PASSWORD}"
-        python -m twine upload -v --non-interactive dist/*
+        python -m twine upload --non-interactive dist/*
