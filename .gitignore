@@ -1,6 +1,7 @@
 AGENTS.md
 CLAUDE.md
 requirement.md
+Paranoid.md
 .claude
 IMP.md
 next.md
@@ -11,6 +12,8 @@ demo_enhanced_conversion.py
 ENHANCEMENT_SUMMARY.md
 educational_output.pdf
 educational_standard.pdf
+yt.md
+yt_tickets.md
 # Python
 __pycache__/
 *.py[cod]

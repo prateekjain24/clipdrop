@@ -36,6 +36,7 @@ This workflow interruption is especially painful for:
 - **Extension Auto-Suggestion**: No extension? ClipDrop suggests the right one
 - **Content Priority**: Intelligently handles mixed content (HTML → PDF, text + image → PDF)
 - **Safe by Default**: Interactive overwrite protection (bypass with `--force`)
+- **Paranoid Mode**: Optional pre-save secret scan with prompt, redact, block, and warn workflows
 - **Preview Mode**: See content before saving (text with syntax highlighting, images with dimensions)
 - **Rich CLI**: Beautiful, informative output with colors and icons
 - **Performance**: Caches clipboard content for speed (<200ms operations)
@@ -98,7 +99,15 @@ clipdrop notes.txt -f
 
 # Preview content before saving (with syntax highlighting for text, dimensions for images)
 clipdrop data.json --preview
-clipdrop screenshot.png -p
+clipdrop screenshot.png -P
+
+# Paranoid pre-save secret checks
+clipdrop notes.txt -p                     # prompt on findings
+clipdrop secrets.json --paranoid=redact   # redact matches then save
+clipdrop secrets.txt --paranoid=block     # block if secrets found
+clipdrop log.txt --paranoid=warn          # warn but save as-is
+clipdrop env.txt -p --yes                 # auto-save in non-TTY contexts
+clipdrop env.txt --paranoid=prompt --yes  # explicit prompt mode with auto-yes
 
 # Force text mode when both image and text are in clipboard
 clipdrop notes.txt --text

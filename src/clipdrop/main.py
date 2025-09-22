@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,11 @@ from rich.prompt import Confirm
 from clipdrop import __version__
 from clipdrop import clipboard, detect, files, images, pdf
 from clipdrop.error_helpers import display_error, show_success_message
+from clipdrop.paranoid import (
+    ParanoidMode,
+    paranoid_gate,
+    print_binary_skip_notice,
+)
 
 console = Console()
 
@@ -35,8 +41,24 @@ def main(
     preview: bool = typer.Option(
         False,
         "--preview",
-        "-p",
+        "-P",
         help="Preview content before saving. Shows syntax-highlighted text or image dimensions with save confirmation"
+    ),
+    paranoid_flag: bool = typer.Option(
+        False,
+        "-p",
+        help="Enable paranoid mode using the interactive prompt",
+    ),
+    paranoid_mode: Optional[ParanoidMode] = typer.Option(
+        None,
+        "--paranoid",
+        help="Run a pre-save secret scan in the given mode: prompt, redact, block, warn",
+        show_choices=True,
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Auto-accept paranoid prompt when running non-interactively",
     ),
     text_mode: bool = typer.Option(
         False,
@@ -86,6 +108,7 @@ def main(
       • Optimizes images (PNG/JPEG compression)
       • Handles mixed clipboard content intelligently
       • Protects against accidental overwrites
+      • Optional paranoid mode to detect secrets before saving
       • Shows preview before saving
 
     [bold cyan]Common Workflows:[/bold cyan]
@@ -94,6 +117,7 @@ def main(
       2. Take screenshot → clipdrop screenshot.png
       3. Copy JSON API response → clipdrop response.json
       4. Copy markdown notes → clipdrop notes.md
+      5. Copy sensitive text → clipdrop secrets.txt -p (prompt before saving)
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
@@ -111,6 +135,7 @@ def main(
     try:
         # Determine content type in clipboard
         content_type = clipboard.get_content_type()
+        active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if paranoid_flag else None)
 
         if content_type == 'none':
             display_error('empty_clipboard')
@@ -275,7 +300,7 @@ def main(
             if content is None:
                 console.print("[red]❌ Could not read clipboard content.[/red]")
                 raise typer.Exit(1)
-
+        
         # Validate and sanitize filename
         if not files.validate_filename(filename):
             filename = files.sanitize_filename(filename)
@@ -341,6 +366,9 @@ def main(
 
         elif use_image:
             # Handle image save
+            if active_paranoid is not None:
+                print_binary_skip_notice(active_paranoid)
+
             # Add extension if not present
             final_filename = images.add_image_extension(filename, image)
             if final_filename != filename:
@@ -411,9 +439,17 @@ def main(
             # Create Path object
             file_path = Path(final_filename)
 
+            if active_paranoid is not None:
+                content, _ = paranoid_gate(
+                    content,
+                    active_paranoid,
+                    is_tty=sys.stdin.isatty(),
+                    auto_yes=yes,
+                )
+
             # Show preview if requested
             if preview:
-                preview_content = clipboard.get_content_preview(200)
+                preview_content = content[:200] if content else None
                 if preview_content:
                     # Determine syntax highlighting based on extension
                     lexer_map = {
