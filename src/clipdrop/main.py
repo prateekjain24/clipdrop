@@ -49,7 +49,8 @@ def handle_youtube_transcript(
     force: bool = False,
     preview: bool = False,
     paranoid_mode: Optional[ParanoidMode] = None,
-    lang: Optional[str] = None
+    lang: Optional[str] = None,
+    yes: bool = False
 ) -> None:
     """
     Handle YouTube transcript download command.
@@ -61,6 +62,7 @@ def handle_youtube_transcript(
         preview: Whether to preview content before saving
         paranoid_mode: Paranoid mode setting
         lang: Preferred subtitle language code
+        yes: Whether to auto-accept paranoid prompts
     """
     # Get clipboard content
     url = clipboard.get_text()
@@ -139,10 +141,15 @@ def handle_youtube_transcript(
             content = vtt_to_srt(vtt_content)
             console.print(f"[yellow]⚠️ Unknown format '{ext}', using SRT format[/yellow]")
 
-        # Apply paranoid mode if enabled
+        # Apply paranoid mode if enabled (skip for VTT to preserve format)
         active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if paranoid_flag else None)
         if active_paranoid and ext in ['.txt', '.md', '.srt']:
-            content = paranoid_gate(content, active_paranoid, output_filename)
+            content, _ = paranoid_gate(
+                content,
+                active_paranoid,
+                is_tty=sys.stdin.isatty(),
+                auto_yes=yes
+            )
             if content is None:
                 console.print("[yellow]⚠️ Content not saved (paranoid mode)[/yellow]")
                 raise typer.Exit(0)
@@ -169,7 +176,7 @@ def handle_youtube_transcript(
                 raise typer.Exit(0)
 
         # Save the file
-        files.save_text(content, output_filename, force=True)
+        files.write_text(output_filename, content, force=True)
 
         # Show success message
         console.print(f"[green]✅ Transcript saved to '{output_filename}'[/green]")
@@ -308,7 +315,8 @@ def main(
             force=force,
             preview=preview,
             paranoid_mode=paranoid_mode,
-            lang=None  # Could add --lang option later
+            lang=None,  # Could add --lang option later
+            yes=yes
         )
 
     try:
