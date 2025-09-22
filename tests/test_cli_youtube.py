@@ -63,11 +63,15 @@ class TestYouTubeErrorMessages:
             assert result.exit_code == 1
 
     @patch('clipdrop.clipboard.get_text')
-    @patch('clipdrop.youtube.get_video_info')
-    @patch('clipdrop.youtube.list_captions')
-    def test_no_captions_available(self, mock_list, mock_info, mock_clipboard):
+    @patch('clipdrop.main.validate_youtube_url')
+    @patch('clipdrop.main.extract_video_id')
+    @patch('clipdrop.main.get_video_info')
+    @patch('clipdrop.main.list_captions')
+    def test_no_captions_available(self, mock_list, mock_info, mock_extract, mock_validate, mock_clipboard):
         """Test error when video has no captions."""
         mock_clipboard.return_value = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        mock_validate.return_value = True
+        mock_extract.return_value = "dQw4w9WgXcQ"
 
         mock_info.return_value = {
             'title': 'Test Video',
