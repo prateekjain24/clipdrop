@@ -25,12 +25,10 @@ from clipdrop.youtube import (
     get_video_info,
     vtt_to_srt,
     vtt_to_txt,
-    vtt_to_md,
-    sanitize_filename
+    vtt_to_md
 )
 from clipdrop.exceptions import (
     YTDLPNotFoundError,
-    YouTubeURLError,
     NoCaptionsError,
     YouTubeError
 )
@@ -110,7 +108,7 @@ def handle_youtube_transcript(
         console.print(f"[green]✓ Selected: {lang_name} {caption_type}[/green]")
 
         # Download VTT
-        console.print(f"[cyan]📥 Downloading captions...[/cyan]")
+        console.print("[cyan]📥 Downloading captions...[/cyan]")
         vtt_path = download_vtt(url, lang_code)
 
         # Read VTT content
@@ -156,7 +154,8 @@ def handle_youtube_transcript(
             for line in preview_lines:
                 console.print(f"  {line}")
             if len(content.split('\n')) > 20:
-                console.print(f"  [dim]... ({len(content.split('\n'))} total lines)[/dim]")
+                total_lines = len(content.split('\n'))
+                console.print(f"  [dim]... ({total_lines} total lines)[/dim]")
 
             if not Confirm.ask("\n[yellow]Save this content?[/yellow]"):
                 console.print("[yellow]Cancelled[/yellow]")
