@@ -37,31 +37,34 @@ func requirePlatformOrExit() {
   }
 }
 
-/// Returns the first audio file URL found on the general pasteboard.
-/// Prefers UTType-based checks and falls back to a light extension check.
 func firstAudioFileURLFromPasteboard() -> URL? {
   let pasteboard = NSPasteboard.general
   guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
 
   for item in items {
     if let data = item.data(forType: .fileURL),
-       let url = NSURL(absoluteURLWithDataRepresentation: data, relativeTo: nil) as URL?,
+       let url = URL(dataRepresentation: data, relativeTo: nil, isAbsolute: true),
        url.isAudioFile {
       return url
     }
 
-    if let value = item.string(forType: .fileURL), let url = URL(string: value) {
-      if url.isAudioFile { return url }
-    } else if let value = item.string(forType: .fileURL) {
-      let url = URL(fileURLWithPath: value)
-      if url.isAudioFile { return url }
+    if let raw = item.string(forType: .fileURL)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+      if let url = URL(string: raw), url.isAudioFile { return url }
+
+      if raw.hasPrefix("file://"),
+         let decoded = URL(string: raw)?.path,
+         URL(fileURLWithPath: decoded).isAudioFile {
+        return URL(fileURLWithPath: decoded)
+      }
+
+      let pathURL = URL(fileURLWithPath: raw)
+      if pathURL.isAudioFile { return pathURL }
     }
   }
 
   return nil
 }
 
-/// Writes raw audio data from the pasteboard to a temporary file when no file URL exists.
 func tempAudioFromPasteboard() -> URL? {
   let pasteboard = NSPasteboard.general
   guard let items = pasteboard.pasteboardItems, !items.isEmpty else { return nil }
@@ -91,31 +94,52 @@ func tempAudioFromPasteboard() -> URL? {
 @available(macOS 26.0, *)
 func transcribeFile(at url: URL, lang: String?) async throws {
   let locale = lang.map(Locale.init(identifier:)) ?? Locale.current
+  fputs("[helper] Opened \(url.path)\n", stderr)
+
   let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
   let audioFile = try AVAudioFile(forReading: url)
-
   let analyzer = try await SpeechAnalyzer(
     inputAudioFile: audioFile,
     modules: [transcriber],
     finishAfterFile: true
   )
 
+  fputs("[helper] analyzeSequence starting\n", stderr)
+
   let analysisTask = Task {
-    try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
+    do {
+      let result = try await analyzer.analyzeSequence(from: audioFile)
+      fputs("[helper] analyzeSequence finished: \(String(describing: result))\n", stderr)
+    } catch {
+      fputs("[helper] analyzeSequence error: \(error)\n", stderr)
+      throw error
+    }
   }
 
   var emitted = 0
-  for try await result in transcriber.results {
-    let start = CMTimeGetSeconds(result.range.start)
-    let duration = CMTimeGetSeconds(result.range.duration)
-    let end = start + duration
-    let text = String(result.text.characters)
-    let json = #"{"start":\#(start.isFinite ? start : 0),"end":\#(end.isFinite ? end : start),"text":\#(text.jsonEscaped)}"#
-    print(json)
-    emitted += 1
+  do {
+    for try await result in transcriber.results {
+      fputs("[helper] received segment range=\(result.range)\n", stderr)
+      let start = CMTimeGetSeconds(result.range.start)
+      let duration = CMTimeGetSeconds(result.range.duration)
+      let end = start + duration
+      let text = String(result.text.characters)
+      let json = #"{"start":\#(start.isFinite ? start : 0),"end":\#(end.isFinite ? end : start),"text":\#(text.jsonEscaped)}"#
+      print(json)
+      emitted += 1
+    }
+  } catch {
+    fputs("[helper] results sequence error: \(error)\n", stderr)
+    throw error
   }
 
-  _ = try await analysisTask.value
+  do {
+    _ = try await analysisTask.value
+    fputs("[helper] analysis task completed\n", stderr)
+  } catch {
+    fputs("[helper] analysis task failed: \(error)\n", stderr)
+    throw error
+  }
 
   if emitted == 0 {
     fputs("No speech detected.\n", stderr)
@@ -159,6 +183,7 @@ struct ClipdropTranscribeClipboardApp {
 
     if #available(macOS 26.0, *) {
       do {
+        fputs("Processing audio: \(audioURL.path)\n", stderr)
         try await transcribeFile(at: audioURL, lang: args.lang)
       } catch {
         fputs("Transcription failed: \(error)\n", stderr)
