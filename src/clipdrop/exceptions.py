@@ -128,3 +128,36 @@ class ImageSaveError(FileWriteError):
         else:
             message = f"Cannot save image to {path}"
         super().__init__(message)
+
+
+# YouTube-related exceptions
+class YouTubeError(ClipDropError):
+    """Base exception for YouTube-related errors."""
+    pass
+
+
+class YouTubeURLError(YouTubeError):
+    """Exception raised for invalid YouTube URLs."""
+    def __init__(self, url: str = None):
+        if url:
+            message = f"Invalid YouTube URL: {url}"
+        else:
+            message = "Invalid or missing YouTube URL"
+        super().__init__(message)
+
+
+class YTDLPNotFoundError(YouTubeError):
+    """Exception raised when yt-dlp is not installed."""
+    def __init__(self):
+        message = "yt-dlp is not installed. Install it with: pip install yt-dlp"
+        super().__init__(message)
+
+
+class NoCaptionsError(YouTubeError):
+    """Exception raised when no captions are available for the video."""
+    def __init__(self, video_id: str = None):
+        if video_id:
+            message = f"No captions available for video: {video_id}"
+        else:
+            message = "No captions available for this video"
+        super().__init__(message)

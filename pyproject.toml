@@ -1,6 +1,6 @@
 [project]
 name = "clipdrop"
-version = "0.45"
+version = "0.5.0"
 description = "Save clipboard content (text and images) to files with smart format detection"
 readme = "README.md"
 authors = [
@@ -53,6 +53,9 @@ dev = [
     "black>=25.1.0",
     "mypy>=1.18.1",
     "psutil>=5.9.0",
+]
+youtube = [
+    "yt-dlp>=2025.09.05",
 ]
 
 [build-system]
