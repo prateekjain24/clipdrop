@@ -337,4 +337,4 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 
 ---
 
-**Current Version**: 0.5.0 | **Status**: Available on PyPI 
+**Current Version**: 0.50 | **Status**: Available on PyPI 
