@@ -111,7 +111,7 @@ def version_callback(value: bool):
 
 
 def handle_youtube_transcript(
-    filename: str,
+    filename: Optional[str],
     paranoid_flag: bool = False,
     force: bool = False,
     preview: bool = False,
@@ -124,7 +124,7 @@ def handle_youtube_transcript(
     Handle YouTube transcript download command.
 
     Args:
-        filename: Target filename (e.g., 'transcript', 'transcript.srt')
+        filename: Target filename (optional - defaults to video title)
         paranoid_flag: Whether paranoid mode is enabled via flag
         force: Whether to force overwrite existing files
         preview: Whether to preview content before saving
@@ -194,15 +194,23 @@ def handle_youtube_transcript(
         with open(vtt_path, 'r', encoding='utf-8') as f:
             vtt_content = f.read()
 
-        # Determine output format from filename
-        file_path = Path(filename)
-        if file_path.suffix:
-            ext = file_path.suffix.lower()
-            output_filename = filename
+        # Determine output filename and format
+        if filename:
+            # Use provided filename
+            file_path = Path(filename)
+            if file_path.suffix:
+                ext = file_path.suffix.lower()
+                output_filename = filename
+            else:
+                # Default to .srt if no extension
+                ext = '.srt'
+                output_filename = f"{filename}.srt"
         else:
-            # Default to .srt if no extension
-            ext = '.srt'
-            output_filename = f"{filename}.srt"
+            # Use video title as filename
+            from .youtube import sanitize_filename
+            safe_title = sanitize_filename(title)
+            ext = '.srt'  # Default format
+            output_filename = f"{safe_title}.srt"
 
         # Convert to requested format
         if ext == '.srt':
@@ -341,6 +349,12 @@ def main(
         "--chapters",
         help="Include chapter markers as comments in transcript (if available)"
     ),
+    youtube: bool = typer.Option(
+        False,
+        "--youtube",
+        "-yt",
+        help="Download YouTube transcript from clipboard URL"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -391,22 +405,10 @@ def main(
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
-    # If no filename is provided, show error
-    if filename is None:
-        console.print("\n[red]📝 Please provide a filename[/red]")
-        console.print("[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
-        console.print("\n[dim]Examples:[/dim]")
-        console.print("  clipdrop notes.txt    # Save text")
-        console.print("  clipdrop image.png    # Save image")
-        console.print("  clipdrop data.json    # Save JSON")
-        console.print("  clipdrop transcript  # Download YouTube transcript")
-        console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
-        raise typer.Exit(1)
-
-    # Check if this is a transcript command
-    if filename.lower().startswith('transcript'):
+    # Check if this is YouTube mode
+    if youtube:
         return handle_youtube_transcript(
-            filename=filename,
+            filename=filename,  # Can be None for YouTube mode
             paranoid_flag=paranoid_flag,
             force=force,
             preview=preview,
@@ -415,6 +417,19 @@ def main(
             yes=yes,
             chapters=chapters
         )
+
+    # For non-YouTube mode, filename is required
+    if filename is None:
+        console.print("\n[red]📝 Please provide a filename[/red]")
+        console.print("[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
+        console.print("\n[dim]Examples:[/dim]")
+        console.print("  clipdrop notes.txt     # Save text")
+        console.print("  clipdrop image.png     # Save image")
+        console.print("  clipdrop data.json     # Save JSON")
+        console.print("  clipdrop --youtube     # Download YouTube transcript")
+        console.print("  clipdrop -yt output.srt # YouTube with custom name")
+        console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
+        raise typer.Exit(1)
 
     try:
         # Determine content type in clipboard
