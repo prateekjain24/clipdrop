@@ -28,6 +28,7 @@ This workflow interruption is especially painful for:
 
 ## Features
 
+- **YouTube Transcripts**: Download video transcripts in multiple formats (SRT, VTT, TXT, MD) 🎥
 - **Web Content Support**: Save content from web pages with embedded images 🌐
 - **PDF Creation**: Save mixed content (text + images) as PDF to preserve context 📄
 - **HTML Clipboard Parsing**: Automatically extracts text and images from web copies
@@ -43,12 +44,17 @@ This workflow interruption is especially painful for:
 - **Image Optimization**: Automatic compression for PNG/JPEG formats
 - **Large File Support**: Handles files up to 100MB with size warnings
 - **Unicode Support**: Full international character support
+- **Multi-language Support**: YouTube transcripts in 150+ languages with auto-detection
 
 ## 📦 Installation
 
 ### Quick Install
 ```bash
+# Basic installation
 pip install clipdrop
+
+# With YouTube transcript support
+pip install clipdrop[youtube]
 ```
 
 ### Alternative Installation Methods
@@ -112,6 +118,13 @@ clipdrop env.txt --paranoid=prompt --yes  # explicit prompt mode with auto-yes
 # Force text mode when both image and text are in clipboard
 clipdrop notes.txt --text
 clipdrop notes.txt -t
+
+# Download YouTube video transcripts
+clipdrop --youtube                        # Download from clipboard URL (defaults to English)
+clipdrop --youtube --lang es             # Download Spanish captions
+clipdrop --youtube transcript.srt        # Save as SRT format
+clipdrop -yt meeting.txt                 # Short flag, save as plain text
+clipdrop --youtube --chapters notes.md   # Include chapter markers in markdown
 
 # Show version
 clipdrop --version
@@ -180,6 +193,31 @@ clipdrop report.pdf       # Always creates PDF
 # • Text with code → formatted in PDF
 # • Screenshots → embedded in PDF
 # • Mixed notes → structured document
+```
+
+#### Download YouTube transcripts
+```bash
+# Copy YouTube URL to clipboard, then:
+clipdrop --youtube
+# 🎥 Found YouTube video: dQw4w9WgXcQ
+# 📺 Title: Example Video Title
+# ✓ Selected: English
+# ✅ Transcript saved to 'Example Video Title.srt'
+
+# Specify language (supports 150+ languages)
+clipdrop --youtube --lang fr            # French
+clipdrop --youtube --lang es            # Spanish
+clipdrop --youtube --lang ja            # Japanese
+
+# Different output formats
+clipdrop --youtube video.txt            # Plain text
+clipdrop --youtube video.srt            # SRT subtitles
+clipdrop --youtube video.vtt            # WebVTT format
+clipdrop --youtube video.md             # Markdown with timestamps
+
+# Advanced options
+clipdrop --youtube --chapters video.md  # Include chapter markers
+clipdrop --youtube --lang en-US         # Specific language variant
 ```
 
 ## 🔧 Development
@@ -299,4 +337,4 @@ Found a bug or have a feature request? Please open an issue on [GitHub Issues](h
 
 ---
 
-**Current Version**: 0.3.0 | **Status**: Available on PyPI 
+**Current Version**: 0.5.0 | **Status**: Available on PyPI 

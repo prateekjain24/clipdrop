@@ -5,6 +5,54 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-09-22
+
+### 🎥 Major Feature Release - YouTube Transcript Support
+
+### Added
+- **YouTube video transcript download feature**
+  - Support for downloading transcripts from any YouTube video
+  - 150+ language support with auto-generated and manual captions
+  - Multiple output formats: VTT, SRT, TXT, and Markdown
+  - Smart language selection (defaults to English when not specified)
+  - Chapter marker integration in transcripts
+  - Comprehensive caching system (~/.cache/clipdrop/youtube/)
+- **CLI enhancements for YouTube**
+  - New `--youtube` / `-yt` flag to enable YouTube mode
+  - New `--lang` flag for language selection (e.g., `--lang es` for Spanish)
+  - New `--chapters` flag to include chapter markers in output
+  - Auto-generates filename from video title when not specified
+- **Robust YouTube functionality**
+  - URL validation and video ID extraction
+  - yt-dlp integration for reliable caption download
+  - VTT parsing with support for various formats
+  - Format conversion between VTT, SRT, TXT, and Markdown
+  - Handles videos with 150+ auto-generated language tracks
+- **Comprehensive test coverage**
+  - 66 unit tests for YouTube functionality
+  - 6 CLI integration tests
+  - 6 end-to-end tests with real YouTube videos
+  - Test coverage for all conversion formats
+
+### Changed
+- Default language selection now prefers English when `--lang` not specified
+- Filename becomes optional when using `--youtube` flag (auto-generated from video title)
+
+### Technical
+- Added `youtube.py` module with complete YouTube operations
+- New optional dependency: `yt-dlp` (install with `pip install clipdrop[youtube]`)
+- Smart caching for video info (7 days) and VTT files (permanent)
+- Handles yt-dlp output format variations (including NA prefix)
+
+### Use Cases
+- Download lecture transcripts for study notes
+- Extract meeting recordings from YouTube
+- Create subtitles for video projects
+- Archive video content as text
+- Translate content by downloading different language tracks
+
+---
+
 ## [0.45] - 2025-01-18
 
 ### Added
