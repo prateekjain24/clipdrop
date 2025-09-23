@@ -131,7 +131,7 @@ clipdrop notes.txt --text
 # Transcribe audio from clipboard (macOS 26.0+)
 clipdrop --transcribe                    # Auto-generate: transcript_YYYYMMDD_HHMMSS.srt
 clipdrop --transcribe meeting.txt        # Save as plain text
-clipdrop -t notes.md --lang en-US        # Specify language and format
+clipdrop -tr notes.md --lang en-US       # Specify language and format
 
 # Download YouTube video transcripts
 clipdrop --youtube                        # Download from clipboard URL (defaults to English)
@@ -230,7 +230,7 @@ clipdrop --lang fr-FR           # French (France)
 
 # Use --transcribe flag when auto-detection fails
 clipdrop --transcribe           # Force transcription mode
-clipdrop -t meeting.txt         # Short flag variant
+clipdrop -tr meeting.txt        # Short flag variant
 ```
 
 #### Download YouTube transcripts

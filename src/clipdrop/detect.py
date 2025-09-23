@@ -1,6 +1,7 @@
 """Smart format detection for clipboard content."""
 
 import json
+import platform
 import re
 from pathlib import Path
 
@@ -156,17 +157,44 @@ def add_extension(filename: str, content: str, has_image: bool = False) -> str:
     return f"{filename}.{detected_format}"
 
 
-def suggest_filename(content: str, has_image: bool = False) -> str:
+def detect_audio_clipboard() -> bool:
+    """
+    Check if clipboard contains audio file or data.
+
+    This is a lightweight check - actual audio detection happens in Swift helper.
+
+    Returns:
+        True if on macOS and Swift helper is available, False otherwise
+    """
+    if platform.system() != "Darwin":
+        return False
+
+    # Check if Swift helper exists
+    try:
+        from clipdrop.macos_ai import helper_path
+        return helper_path() is not None
+    except ImportError:
+        return False
+
+
+def suggest_filename(content: str, has_image: bool = False, has_audio: bool = False) -> str:
     """
     Suggest a filename based on content type.
 
     Args:
         content: Content to analyze
         has_image: Whether image content is also present
+        has_audio: Whether audio content is detected
 
     Returns:
         Suggested filename with extension
     """
+    # Audio takes precedence
+    if has_audio:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"transcript_{timestamp}.srt"
+
     format_type = detect_format(content, has_image)
 
     # Generate contextual default names

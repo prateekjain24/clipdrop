@@ -556,14 +556,18 @@ class TestVTTDownload:
             assert '--sub-lang' in call_args
             assert 'en' in call_args
 
-    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.subprocess.run')
+    @patch('src.clipdrop.youtube.Path.exists')
+    @patch('src.clipdrop.youtube.ensure_cache_dir')
     @patch('src.clipdrop.youtube.check_ytdlp_installed')
-    def test_download_vtt_no_captions(self, mock_check, mock_run):
+    def test_download_vtt_no_captions(self, mock_check, mock_ensure, mock_exists, mock_run):
         """Test handling when no captions are available."""
         import pytest
         from src.clipdrop.exceptions import NoCaptionsError
 
         mock_check.return_value = (True, "yt-dlp found")
+        # VTT file doesn't exist in cache
+        mock_exists.return_value = False
 
         mock_result = MagicMock()
         mock_result.returncode = 1
