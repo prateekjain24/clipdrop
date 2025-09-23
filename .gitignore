@@ -74,4 +74,3 @@ Thumbs.db
 *.xcodeproj
 *.xcworkspace
 Package.resolved
-src/clipdrop/bin/clipdrop-transcribe-clipboard
