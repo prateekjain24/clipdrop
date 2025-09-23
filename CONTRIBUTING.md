@@ -155,6 +155,104 @@ Look for issues labeled `good first issue` or `help wanted` on GitHub.
 - Cloud storage integration
 - Plugin system for custom formats
 
+## 🎵 Testing Audio Transcription (macOS 26.0+)
+
+### Prerequisites
+
+- macOS 26.0 or later with Apple Intelligence
+- Swift transcription helper built (see below)
+- Test audio file: `jfk.mp3` (provided in repo)
+
+### Building the Swift Helper
+
+If the helper isn't built yet:
+```bash
+cd swift/TranscribeClipboard
+swift build -c release
+cp .build/release/clipdrop-transcribe-clipboard ../../src/clipdrop/bin/
+```
+
+### Running Smoke Tests
+
+We provide an automated smoke test script that validates the entire transcription pipeline:
+
+```bash
+# Run all tests
+./scripts/test_transcription.sh
+
+# Keep test outputs for inspection
+./scripts/test_transcription.sh --keep
+
+# Expected output:
+✅ macOS version: 26.0
+✅ Swift helper found
+✅ Test audio found: jfk.mp3
+✅ clipdrop command available
+✅ Audio copied to clipboard
+✅ Transcribed to srt: test_output/transcript_test.srt (2.5 KB)
+✅ Transcribed to txt: test_output/transcript_test.txt (1.8 KB)
+✅ Transcribed to md: test_output/transcript_test.md (2.2 KB)
+✅ All smoke tests passed!
+```
+
+### Manual Testing
+
+1. **Copy audio to clipboard** (choose one method):
+   ```bash
+   # Method 1: Use Finder
+   # Navigate to clipdrop folder, select jfk.mp3, press ⌘C
+
+   # Method 2: Use the test script's copy function
+   osascript -e 'set the clipboard to (POSIX file "'"$(pwd)/jfk.mp3"'")'
+   ```
+
+2. **Test auto-detection**:
+   ```bash
+   clipdrop                    # Auto-generates: transcript_YYYYMMDD_HHMMSS.srt
+   ```
+
+3. **Test specific formats**:
+   ```bash
+   clipdrop transcript.srt -tr    # SRT format with timestamps
+   clipdrop transcript.txt -tr    # Plain text
+   clipdrop transcript.md -tr     # Markdown with timestamp headers
+   ```
+
+4. **Test with language preference**:
+   ```bash
+   clipdrop transcript.srt -tr --lang en-US
+   ```
+
+### Expected Results
+
+The transcription of `jfk.mp3` should produce text from President Kennedy's speech. Example SRT output:
+```srt
+1
+00:00:00,000 --> 00:00:02,500
+And so my fellow Americans
+
+2
+00:00:02,500 --> 00:00:05,000
+ask not what your country can do for you
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Swift helper not found" | Build the helper: `cd swift/TranscribeClipboard && swift build` |
+| "No audio in clipboard" | Ensure you copied the audio file using Finder (⌘C) |
+| "macOS version too old" | Requires macOS 26.0+ with Apple Intelligence |
+| "Transcription failed" | Check Speech Recognition permissions in System Settings |
+| Empty output files | Verify the audio file has speech content |
+
+### Testing Different Audio Files
+
+You can test with your own audio files:
+1. Supported formats: `.m4a`, `.mp3`, `.wav`, `.aiff`
+2. Copy the file in Finder (⌘C)
+3. Run `clipdrop --transcribe`
+
 ## 🤝 Code of Conduct
 
 ### Be Respectful

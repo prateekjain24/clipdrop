@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 struct Args {
   var lang: String? = nil
   var jsonl: Bool = true
+  var checkOnly: Bool = false
 }
 
 func parseArgs() -> Args {
@@ -22,6 +23,8 @@ func parseArgs() -> Args {
       }
     case "--no-jsonl":
       args.jsonl = false
+    case "--check-only":
+      args.checkOnly = true
     default:
       break
     }
@@ -229,6 +232,11 @@ struct ClipdropTranscribeClipboardApp {
     guard let audioURL = url else {
       fputs("No audio file URL or raw audio data found on the clipboard.\n", stderr)
       exit(1)
+    }
+
+    // If check-only mode, just exit successfully if we have audio
+    if args.checkOnly {
+      exit(0)
     }
 
     if #available(macOS 26.0, *) {
