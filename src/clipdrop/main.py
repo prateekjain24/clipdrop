@@ -448,6 +448,13 @@ def main(
         "-P",
         help="Preview content before saving. Shows syntax-highlighted text or image dimensions with save confirmation"
     ),
+    append: bool = typer.Option(
+        False,
+        "--append",
+        "-a",
+        help="Append to existing file instead of overwriting. Text-only operation. "
+             "Adds content to the end of file with smart separation based on file type"
+    ),
     paranoid_flag: bool = typer.Option(
         False,
         "-p",
@@ -750,9 +757,26 @@ def main(
         content = clipboard.get_text()
         image = clipboard.get_image()
 
+        # Handle append mode - force text-only
+        if append:
+            if not content:
+                console.print("[red]❌ No text found in clipboard for append operation.[/red]")
+                console.print("[dim]Note: Append mode only works with text content.[/dim]")
+                raise typer.Exit(1)
+
+            # Force text mode, ignore images
+            image = None
+            console.print("[cyan]📝 Append mode - using text content only[/cyan]")
+
         # Check if user explicitly wants PDF
         file_path = Path(filename)
         wants_pdf = file_path.suffix.lower() == '.pdf'
+
+        # Prevent PDF with append mode
+        if append and wants_pdf:
+            console.print("[red]❌ Cannot append to PDF files.[/red]")
+            console.print("[dim]Append mode only works with text files.[/dim]")
+            raise typer.Exit(1)
 
         # Determine what to save based on content and user preference
         use_pdf = False
@@ -977,18 +1001,43 @@ def main(
                         console.print("[yellow]Operation cancelled.[/yellow]")
                         raise typer.Exit()
 
-            # Write the file
-            files.write_text(file_path, content, force=force)
+            # Write or append the file
+            if append:
+                # Check if file exists for informative message
+                file_existed = file_path.exists()
 
-            # Success message
-            size_str = files.get_file_size(content)
-            content_format = detect.detect_format(content)
-            show_success_message(
-                file_path,
-                content_format if content_format != 'txt' else 'text',
-                size_str,
-                {'format_detected': content_format}
-            )
+                # Apply paranoid mode to content being appended (if enabled)
+                if active_paranoid is not None and not file_existed:
+                    # Only scan on new files in append mode
+                    content, _ = paranoid_gate(
+                        content,
+                        active_paranoid,
+                        is_tty=sys.stdin.isatty(),
+                        auto_yes=yes,
+                    )
+
+                # Perform append operation
+                bytes_appended = files.append_text_to_file(file_path, content)
+
+                # Show append-specific success message
+                size_str = files.get_file_size_human(bytes_appended)
+                if file_existed:
+                    console.print(f"[green]✅ Appended {size_str} to {file_path}[/green]")
+                else:
+                    console.print(f"[green]✅ Created new file with {size_str}: {file_path}[/green]")
+            else:
+                # Normal write operation
+                files.write_text(file_path, content, force=force)
+
+                # Success message
+                size_str = files.get_file_size(content)
+                content_format = detect.detect_format(content)
+                show_success_message(
+                    file_path,
+                    content_format if content_format != 'txt' else 'text',
+                    size_str,
+                    {'format_detected': content_format}
+                )
 
     except typer.Abort:
         # User cancelled operation

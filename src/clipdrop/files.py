@@ -232,6 +232,103 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+def append_text_to_file(path: Union[Path, str], content: str, separator: Optional[str] = None) -> int:
+    """
+    Append text content to an existing file or create new if doesn't exist.
+
+    Args:
+        path: Path where content should be appended
+        content: Text content to append
+        separator: Optional separator between existing and new content
+                  If None, smart separator is chosen based on file extension
+
+    Returns:
+        Number of bytes appended
+
+    Raises:
+        ValueError: If content is empty
+        PermissionError: If file cannot be written
+    """
+    if not content:
+        raise ValueError("Cannot append empty content")
+
+    # Convert string path to Path object if needed
+    if not isinstance(path, Path):
+        path = Path(path)
+
+    # Ensure parent directory exists
+    ensure_parent_dir(path)
+
+    # Determine smart separator if not provided
+    if separator is None:
+        ext = path.suffix.lower()
+        if ext == '.md':
+            separator = "\n\n---\n\n"  # Markdown separator
+        elif ext == '.log':
+            # Add timestamp for log files
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            separator = f"\n[{timestamp}]\n"
+        elif ext in ['.json', '.csv', '.xml']:
+            separator = "\n"  # Minimal separator for structured files
+        else:
+            separator = "\n\n"  # Default double newline
+
+    # Check if file exists
+    if path.exists():
+        # Read existing content to ensure proper append
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+
+            # Add separator only if file has content
+            if existing_content and not existing_content.endswith('\n'):
+                final_content = existing_content + separator + content
+            elif existing_content:
+                # File ends with newline, adjust separator
+                if separator.startswith('\n'):
+                    final_content = existing_content + separator[1:] + content
+                else:
+                    final_content = existing_content + separator + content
+            else:
+                # Empty file
+                final_content = content
+
+        except Exception as e:
+            raise PermissionError(f"Cannot read file for appending: {e}")
+    else:
+        # New file, no separator needed
+        final_content = content
+
+    # Write atomically using temp file
+    try:
+        # Create temp file in same directory as target
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            encoding='utf-8',
+            dir=path.parent,
+            delete=False,
+            suffix='.tmp'
+        ) as tmp_file:
+            tmp_file.write(final_content)
+            tmp_path = Path(tmp_file.name)
+
+        # Atomic rename
+        tmp_path.replace(path)
+
+        # Calculate and return bytes appended (including separator)
+        bytes_appended = len(content.encode('utf-8'))
+        if path.exists() and separator:
+            bytes_appended += len(separator.encode('utf-8'))
+
+        return bytes_appended
+
+    except Exception as e:
+        # Clean up temp file on error
+        if 'tmp_path' in locals() and tmp_path.exists():
+            tmp_path.unlink()
+        raise PermissionError(f"Cannot append to file: {e}")
+
+
 def write_text_file(path: Union[Path, str], content: str, force: bool = False) -> None:
     """
     Write text content to a file (alias for consistency with ticket).
