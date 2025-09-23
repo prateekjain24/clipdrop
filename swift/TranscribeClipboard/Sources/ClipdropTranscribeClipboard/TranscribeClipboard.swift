@@ -92,29 +92,86 @@ func tempAudioFromPasteboard() -> URL? {
 }
 
 @available(macOS 26.0, *)
-func transcribeFile(at url: URL, lang: String?) async throws {
-  let locale = lang.map(Locale.init(identifier:)) ?? Locale.current
-  fputs("[helper] Opened \(url.path)\n", stderr)
+func getSupportedLocale(for requestedLocale: Locale) async -> Locale? {
+  let supportedLocales = await SpeechTranscriber.supportedLocales
 
+  // Try exact match first
+  if let exact = supportedLocales.first(where: {
+    $0.identifier(.bcp47) == requestedLocale.identifier(.bcp47)
+  }) {
+    return exact
+  }
+
+  // Try language-only match (e.g., "en" from "en_SG")
+  let requestedLang = requestedLocale.language.languageCode?.identifier
+  if let requestedLang = requestedLang {
+    // Preferred fallbacks for common languages
+    let fallbackMap = [
+      "en": ["en_US", "en_GB", "en_AU"],
+      "zh": ["zh_CN", "zh_TW", "zh_HK"],
+      "es": ["es_ES", "es_US", "es_MX"],
+      "fr": ["fr_FR", "fr_CA", "fr_BE"],
+      "de": ["de_DE", "de_CH", "de_AT"]
+    ]
+
+    if let fallbacks = fallbackMap[requestedLang] {
+      for fallbackId in fallbacks {
+        if let fallback = supportedLocales.first(where: {
+          $0.identifier == fallbackId
+        }) {
+          fputs("[helper] Using fallback locale: \(fallback.identifier) for requested: \(requestedLocale.identifier)\n", stderr)
+          return fallback
+        }
+      }
+    }
+
+    // Generic language match
+    if let langMatch = supportedLocales.first(where: {
+      $0.language.languageCode?.identifier == requestedLang
+    }) {
+      fputs("[helper] Using language match: \(langMatch.identifier) for requested: \(requestedLocale.identifier)\n", stderr)
+      return langMatch
+    }
+  }
+
+  return nil
+}
+
+@available(macOS 26.0, *)
+func transcribeFile(at url: URL, lang: String?) async throws {
+  let requestedLocale = lang.map(Locale.init(identifier:)) ?? Locale.current
+  fputs("[helper] Opened \(url.path)\n", stderr)
+  fputs("[helper] Requested locale: \(requestedLocale.identifier)\n", stderr)
+
+  // Get supported locale with fallback
+  guard let locale = await getSupportedLocale(for: requestedLocale) else {
+    fputs("Error: Locale \(requestedLocale.identifier) not supported and no fallback available\n", stderr)
+    fputs("Supported locales: \(await SpeechTranscriber.supportedLocales.map(\.identifier))\n", stderr)
+    exit(2)
+  }
+
+  fputs("[helper] Using locale: \(locale.identifier)\n", stderr)
+
+  // Create transcriber with the supported locale
   let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
+
+  // Check if models need to be installed
+  if let installRequest = try await AssetInventory.assetInstallationRequest(
+    supporting: [transcriber]
+  ) {
+    fputs("[helper] Downloading required models...\n", stderr)
+    try await installRequest.downloadAndInstall()
+    fputs("[helper] Models downloaded\n", stderr)
+  }
+
   let audioFile = try AVAudioFile(forReading: url)
-  let analyzer = try await SpeechAnalyzer(
-    inputAudioFile: audioFile,
-    modules: [transcriber],
-    finishAfterFile: true
-  )
+  let analyzer = SpeechAnalyzer(modules: [transcriber])
 
   fputs("[helper] analyzeSequence starting\n", stderr)
 
-  let analysisTask = Task {
-    do {
-      let result = try await analyzer.analyzeSequence(from: audioFile)
-      fputs("[helper] analyzeSequence finished: \(String(describing: result))\n", stderr)
-    } catch {
-      fputs("[helper] analyzeSequence error: \(error)\n", stderr)
-      throw error
-    }
-  }
+  // Start analysis
+  let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
+  fputs("[helper] analyzeSequence finished: \(String(describing: lastSampleTime))\n", stderr)
 
   var emitted = 0
   do {
@@ -133,12 +190,13 @@ func transcribeFile(at url: URL, lang: String?) async throws {
     throw error
   }
 
-  do {
-    _ = try await analysisTask.value
-    fputs("[helper] analysis task completed\n", stderr)
-  } catch {
-    fputs("[helper] analysis task failed: \(error)\n", stderr)
-    throw error
+  // Finish analysis
+  if let lastSampleTime {
+    try await analyzer.finalizeAndFinish(through: lastSampleTime)
+    fputs("[helper] analysis finalized\n", stderr)
+  } else {
+    await analyzer.cancelAndFinishNow()
+    fputs("[helper] analysis cancelled\n", stderr)
   }
 
   if emitted == 0 {
