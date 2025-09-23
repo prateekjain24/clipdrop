@@ -103,7 +103,17 @@ def transcribe_from_clipboard(lang: str | None = None) -> list[dict[str, Any]]:
     code = proc.wait()
     if code != 0:
         err = proc.stderr.read().strip() if proc.stderr else ""
-        raise RuntimeError(err or f"helper exit {code}")
+        # Map exit codes to specific error messages
+        if code == 1:
+            raise RuntimeError("No audio file found in clipboard")
+        elif code == 2:
+            raise RuntimeError("Platform not supported - requires macOS 26.0+")
+        elif code == 3:
+            raise RuntimeError("No speech detected in audio")
+        elif code == 4:
+            raise RuntimeError(err or "Transcription failed")
+        else:
+            raise RuntimeError(err or f"Helper exited with code {code}")
 
     return segments
 
@@ -165,7 +175,17 @@ def transcribe_from_clipboard_stream(
         code = proc.wait()
         if code != 0:
             err = proc.stderr.read().strip() if proc.stderr else ""
-            raise RuntimeError(err or f"helper exit {code}")
+            # Map exit codes to specific error messages
+            if code == 1:
+                raise RuntimeError("No audio file found in clipboard")
+            elif code == 2:
+                raise RuntimeError("Platform not supported - requires macOS 26.0+")
+            elif code == 3:
+                raise RuntimeError("No speech detected in audio")
+            elif code == 4:
+                raise RuntimeError(err or "Transcription failed")
+            else:
+                raise RuntimeError(err or f"Helper exited with code {code}")
 
     finally:
         # Ensure process is terminated if interrupted

@@ -258,6 +258,108 @@ clipdrop --youtube --chapters video.md  # Include chapter markers
 clipdrop --youtube --lang en-US         # Specific language variant
 ```
 
+## 🎙️ On-device Transcription (macOS)
+
+ClipDrop leverages Apple Intelligence for fast, private audio transcription directly on your Mac. Your audio never leaves your device.
+
+### Requirements
+
+- **macOS 26.0+** with Apple Intelligence enabled
+- **Supported formats**: `.m4a`, `.mp3`, `.wav`, `.aiff`, `.caf`
+- **Languages**: 50+ languages supported (auto-detected or specify with `--lang`)
+
+### How to Use
+
+1. **Copy an audio file** to clipboard (select in Finder, press ⌘C)
+2. **Run ClipDrop** - it auto-detects audio and transcribes
+
+```bash
+# Auto-detect and transcribe
+clipdrop                        # Creates: transcript_YYYYMMDD_HHMMSS.srt
+
+# Custom filename and format
+clipdrop meeting.srt            # SRT with timestamps
+clipdrop notes.txt              # Plain text only
+clipdrop summary.md             # Markdown with time headers
+
+# Specify language for accuracy
+clipdrop --lang en-US meeting.srt   # US English
+clipdrop --lang es-ES acta.txt      # Spanish
+clipdrop --lang ja-JP memo.md       # Japanese
+
+# Force transcription mode if auto-detection fails
+clipdrop --transcribe           # Uses -tr short flag
+```
+
+### Output Formats
+
+| Format | Extension | Description |
+|--------|-----------|-------------|
+| SRT | `.srt` | Standard subtitle format with timestamps |
+| Plain Text | `.txt` | Just the transcribed text |
+| Markdown | `.md` | Text with timestamp headers |
+
+### Performance
+
+- **Speed**: ~5 seconds for 1-minute audio
+- **Accuracy**: High accuracy using Apple's latest models
+- **Privacy**: 100% on-device, no internet required
+
+### Not on macOS?
+
+This feature requires macOS 26.0+ with Apple Intelligence. For other platforms:
+
+- **Linux/Windows users**: Consider cloud-based alternatives like:
+  - OpenAI Whisper API
+  - Google Cloud Speech-to-Text
+  - Azure Speech Services
+
+- **Older macOS**: Upgrade to macOS 26.0 or use online transcription services
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "No audio in clipboard" | Copy audio file using Finder (⌘C) |
+| "Platform not supported" | Requires macOS 26.0+ |
+| "No speech detected" | Check audio has speech content |
+| "Helper not found" | Reinstall: `pip install --force-reinstall clipdrop` |
+
+See [Exit Codes](#-exit-codes) for automation and scripting.
+
+## 🚪 Exit Codes
+
+The audio transcription feature uses standardized exit codes for better automation and debugging:
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0 | SUCCESS | Transcription completed successfully |
+| 1 | NO_AUDIO | No audio file found in clipboard |
+| 2 | PLATFORM_ERROR | Not on macOS or version < 26.0 |
+| 3 | NO_SPEECH | Audio found but no speech detected |
+| 4 | TRANSCRIPTION_ERROR | General transcription failure |
+
+### Using Exit Codes in Scripts
+
+```bash
+# Check for specific errors
+clipdrop transcript.srt -tr
+case $? in
+  0) echo "Success!" ;;
+  1) echo "No audio in clipboard" ;;
+  2) echo "Wrong platform/version" ;;
+  3) echo "No speech in audio" ;;
+  4) echo "Transcription failed" ;;
+esac
+
+# Or simply check success/failure
+if clipdrop -tr; then
+  echo "Transcription successful"
+else
+  echo "Transcription failed with code: $?"
+fi
+```
+
 ## 🔧 Development
 
 ### Setup Development Environment

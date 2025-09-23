@@ -28,6 +28,16 @@ from clipdrop.youtube import (
     vtt_to_txt,
     vtt_to_md
 )
+
+
+# Standardized exit codes for audio transcription
+class ExitCode:
+    """Standardized exit codes for consistent error handling."""
+    SUCCESS = 0
+    NO_AUDIO = 1           # No audio found in clipboard
+    PLATFORM_ERROR = 2     # Platform not supported (not macOS or wrong version)
+    NO_SPEECH = 3          # Audio found but no speech detected
+    TRANSCRIPTION_ERROR = 4  # General transcription failure
 from clipdrop.exceptions import (
     YTDLPNotFoundError,
     NoCaptionsError,
@@ -169,16 +179,18 @@ def handle_audio_transcription(
                 if "No audio" in str(e):
                     console.print("[red]❌ No audio found in clipboard[/red]")
                     console.print("[dim]Please copy an audio file first, then try again.[/dim]")
-                elif "macOS" in str(e):
+                    raise typer.Exit(ExitCode.NO_AUDIO)
+                elif "macOS" in str(e) or "platform" in str(e).lower():
                     console.print("[red]❌ Audio transcription requires macOS 26.0+[/red]")
                     console.print("[dim]This feature uses on-device Apple Intelligence.[/dim]")
+                    raise typer.Exit(ExitCode.PLATFORM_ERROR)
                 else:
                     console.print(f"[red]❌ Transcription failed: {e}[/red]")
-                raise typer.Exit(1)
+                    raise typer.Exit(ExitCode.TRANSCRIPTION_ERROR)
 
         if not segments:
             console.print("[yellow]⚠️  No speech detected in audio[/yellow]")
-            raise typer.Exit(1)
+            raise typer.Exit(ExitCode.NO_SPEECH)
 
         # Format output based on extension
         if ext in ('.srt', ''):
@@ -209,27 +221,27 @@ def handle_audio_transcription(
 
         except Exception as e:
             display_error(e, final_filename)
-            raise typer.Exit(1)
+            raise typer.Exit(ExitCode.TRANSCRIPTION_ERROR)
 
     except UnsupportedPlatformError as e:
         console.print(f"[red]❌ {e}[/red]")
         console.print("[yellow]This feature requires macOS with Apple Intelligence[/yellow]")
-        raise typer.Exit(1)
+        raise typer.Exit(ExitCode.PLATFORM_ERROR)
 
     except UnsupportedMacOSVersionError as e:
         console.print(f"[red]❌ {e}[/red]")
         console.print("[yellow]Please upgrade to macOS 26.0 or later[/yellow]")
-        raise typer.Exit(1)
+        raise typer.Exit(ExitCode.PLATFORM_ERROR)
 
     except HelperNotFoundError as e:
         console.print(f"[red]❌ {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(ExitCode.TRANSCRIPTION_ERROR)
 
     except ImportError as e:
         # Fallback for any other import issues
         console.print("[red]❌ Audio transcription module not available[/red]")
         console.print(f"[yellow]Error: {e}[/yellow]")
-        raise typer.Exit(1)
+        raise typer.Exit(ExitCode.PLATFORM_ERROR)
 
 
 def handle_youtube_transcript(
@@ -420,7 +432,9 @@ def handle_youtube_transcript(
 def main(
     filename: Optional[str] = typer.Argument(
         None,
-        help="Target filename for clipboard content. Extension optional - ClipDrop auto-detects format (e.g., 'notes' → 'notes.txt', 'data' → 'data.json')"
+        help="Target filename. Extension optional - auto-detects format. "
+             "Examples: 'notes' → notes.txt, 'data' → data.json, "
+             "'screenshot' → screenshot.png, 'meeting' → meeting.srt (if audio in clipboard)"
     ),
     force: bool = typer.Option(
         False,
@@ -464,24 +478,34 @@ def main(
     lang: Optional[str] = typer.Option(
         None,
         "--lang",
-        help="Preferred language for YouTube captions (e.g., 'en', 'es', 'fr'). Shows available languages if not found"
+        help="Language code for transcription/captions. "
+             "YouTube: 'en', 'es', 'fr', etc. (150+ languages). "
+             "Audio transcription: 'en-US', 'es-ES', 'ja-JP', etc. "
+             "Auto-detects if not specified"
     ),
     chapters: bool = typer.Option(
         False,
         "--chapters",
-        help="Include chapter markers as comments in transcript (if available)"
+        help="Include YouTube chapter markers in transcript. "
+             "Adds timestamps and chapter titles as headers (Markdown) "
+             "or comments (SRT/VTT/TXT)"
     ),
     youtube: bool = typer.Option(
         False,
         "--youtube",
         "-yt",
-        help="Download YouTube transcript from clipboard URL"
+        help="Download YouTube transcript from clipboard URL. "
+             "Supports multiple formats: .srt (subtitles), .vtt (WebVTT), "
+             ".txt (plain text), .md (markdown with timestamps). "
+             "Use --lang for specific language (150+ supported)"
     ),
     transcribe: bool = typer.Option(
         False,
         "--transcribe",
         "-tr",
-        help="Transcribe audio from clipboard (macOS 26.0+)"
+        help="Force audio transcription mode. Usually auto-detected when audio is in clipboard. "
+             "Outputs: .srt (subtitles), .txt (plain text), or .md (markdown). "
+             "Requires macOS 26.0+ with Apple Intelligence"
     ),
     version: Optional[bool] = typer.Option(
         None,
@@ -495,8 +519,8 @@ def main(
     Save clipboard content to files with smart format detection.
 
     ClipDrop automatically detects content types and suggests appropriate file extensions.
-    It handles both text and images, with intelligent format detection for JSON, Markdown,
-    CSV, and various image formats.
+    It handles text, images, audio (macOS 26.0+), and mixed content with intelligent
+    format detection for JSON, Markdown, CSV, and various media formats.
 
     [bold cyan]Quick Examples:[/bold cyan]
 
@@ -509,6 +533,18 @@ def main(
         clipdrop screenshot         # Saves clipboard image → screenshot.png
         clipdrop photo.jpg          # Saves as JPEG with optimization
 
+      [green]Audio (macOS 26.0+):[/green]
+        clipdrop                    # Auto-transcribes audio → transcript_[timestamp].srt
+        clipdrop meeting.txt        # Transcribe to plain text
+        clipdrop notes.md           # Transcribe to markdown
+        clipdrop -tr talk.srt       # Force transcription mode
+
+      [green]YouTube:[/green]
+        clipdrop --youtube          # Download transcript from clipboard URL
+        clipdrop -yt video.srt      # Save as subtitles
+        clipdrop -yt --lang es      # Spanish transcript
+        clipdrop -yt --chapters     # Include chapter markers
+
       [green]Mixed Content:[/green]
         clipdrop document           # Mixed text+image → document.pdf
         clipdrop content --text     # Forces text mode
@@ -517,6 +553,8 @@ def main(
     [bold cyan]Smart Features:[/bold cyan]
 
       • Auto-detects JSON, Markdown, CSV formats
+      • On-device audio transcription (macOS 26.0+ with Apple Intelligence)
+      • YouTube transcript downloads (150+ languages)
       • Optimizes images (PNG/JPEG compression)
       • Handles mixed clipboard content intelligently
       • Protects against accidental overwrites
@@ -529,7 +567,9 @@ def main(
       2. Take screenshot → clipdrop screenshot.png
       3. Copy JSON API response → clipdrop response.json
       4. Copy markdown notes → clipdrop notes.md
-      5. Copy sensitive text → clipdrop secrets.txt -p (prompt before saving)
+      5. Copy audio file → clipdrop (auto-transcribes)
+      6. Copy YouTube URL → clipdrop --youtube
+      7. Copy sensitive text → clipdrop secrets.txt -p (prompt before saving)
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
@@ -977,7 +1017,11 @@ def main(
 # Create the Typer app
 app = typer.Typer(
     name="clipdrop",
-    help="Save clipboard content to files with smart format detection",
+    help="Save clipboard content to files with smart format detection.\n\n"
+         "📋 → 📄 Transform your clipboard into files with one command.\n\n"
+         "Features: Audio transcription (macOS 26.0+), YouTube transcripts, "
+         "PDF generation, smart format detection (JSON/Markdown/CSV), "
+         "image optimization, and secret scanning.",
     add_completion=False,
 )
 
