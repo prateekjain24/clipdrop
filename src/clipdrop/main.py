@@ -246,7 +246,7 @@ def handle_audio_transcription(
 
 def handle_youtube_transcript(
     filename: Optional[str],
-    paranoid_flag: bool = False,
+    scan: bool = False,
     force: bool = False,
     preview: bool = False,
     paranoid_mode: Optional[ParanoidMode] = None,
@@ -445,7 +445,7 @@ def main(
     preview: bool = typer.Option(
         False,
         "--preview",
-        "-P",
+        "-p",
         help="Preview content before saving. Shows syntax-highlighted text or image dimensions with save confirmation"
     ),
     append: bool = typer.Option(
@@ -455,32 +455,33 @@ def main(
         help="Append to existing file instead of overwriting. Text-only operation. "
              "Adds content to the end of file with smart separation based on file type"
     ),
-    paranoid_flag: bool = typer.Option(
+    scan: bool = typer.Option(
         False,
-        "-p",
-        help="Enable paranoid mode using the interactive prompt",
+        "--scan",
+        "-s",
+        help="Scan for secrets before saving (interactive prompt)",
     ),
-    paranoid_mode: Optional[ParanoidMode] = typer.Option(
+    scan_mode: Optional[ParanoidMode] = typer.Option(
         None,
-        "--paranoid",
-        help="Run a pre-save secret scan in the given mode: prompt, redact, block, warn",
+        "--scan-mode",
+        help="How to handle found secrets: prompt, redact, block, warn",
         show_choices=True,
     ),
     yes: bool = typer.Option(
         False,
         "--yes",
-        help="Auto-accept paranoid prompt when running non-interactively",
+        "-y",
+        help="Auto-accept all prompts (useful for automation)",
     ),
-    text_mode: bool = typer.Option(
+    text_only: bool = typer.Option(
         False,
-        "--text",
-        "-t",
-        help="Prioritize text over images when both exist in clipboard. Useful when you want the text instead of a screenshot"
+        "--text-only",
+        help="Save only text content, ignore images in clipboard"
     ),
-    educational: bool = typer.Option(
-        True,
-        "--educational/--no-educational",
-        help="Enable educational content optimizations for better formatting in PDFs (justified text, callout boxes, enhanced spacing)"
+    image_only: bool = typer.Option(
+        False,
+        "--image-only",
+        help="Save only image content, ignore text in clipboard"
     ),
     lang: Optional[str] = typer.Option(
         None,
@@ -506,11 +507,10 @@ def main(
              ".txt (plain text), .md (markdown with timestamps). "
              "Use --lang for specific language (150+ supported)"
     ),
-    transcribe: bool = typer.Option(
+    audio: bool = typer.Option(
         False,
-        "--transcribe",
-        "-tr",
-        help="Force audio transcription mode. Usually auto-detected when audio is in clipboard. "
+        "--audio",
+        help="Force audio transcription mode (usually auto-detected). "
              "Outputs: .srt (subtitles), .txt (plain text), or .md (markdown). "
              "Requires macOS 26.0+ with Apple Intelligence"
     ),
@@ -544,7 +544,7 @@ def main(
         clipdrop                    # Auto-transcribes audio → transcript_[timestamp].srt
         clipdrop meeting.txt        # Transcribe to plain text
         clipdrop notes.md           # Transcribe to markdown
-        clipdrop -tr talk.srt       # Force transcription mode
+        clipdrop --audio talk.srt   # Force transcription mode
 
       [green]YouTube:[/green]
         clipdrop --youtube          # Download transcript from clipboard URL
@@ -554,7 +554,7 @@ def main(
 
       [green]Mixed Content:[/green]
         clipdrop document           # Mixed text+image → document.pdf
-        clipdrop content --text     # Forces text mode
+        clipdrop content --text-only # Forces text mode
         clipdrop report.pdf         # Explicitly create PDF
 
     [bold cyan]Smart Features:[/bold cyan]
@@ -576,7 +576,7 @@ def main(
       4. Copy markdown notes → clipdrop notes.md
       5. Copy audio file → clipdrop (auto-transcribes)
       6. Copy YouTube URL → clipdrop --youtube
-      7. Copy sensitive text → clipdrop secrets.txt -p (prompt before saving)
+      7. Copy sensitive text → clipdrop secrets.txt -s (scan before saving)
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
@@ -753,6 +753,11 @@ def main(
                         console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
                         raise typer.Exit()
 
+        # Check for conflicting flags
+        if text_only and image_only:
+            console.print("[red]❌ Cannot use both --text-only and --image-only.[/red]")
+            raise typer.Exit(1)
+
         # Get both text and image content (may be None)
         content = clipboard.get_text()
         image = clipboard.get_image()
@@ -788,9 +793,13 @@ def main(
             console.print("[cyan]📄 Creating PDF from clipboard content...[/cyan]")
         elif content_type == 'both':
             # Both image and text exist
-            if text_mode:
-                console.print("[cyan]ℹ️  Both image and text found. Using text mode.[/cyan]")
-                image = None  # Ignore image in text mode
+            if text_only:
+                console.print("[cyan]ℹ️  Both image and text found. Using text only.[/cyan]")
+                image = None  # Ignore image in text-only mode
+            elif image_only:
+                console.print("[cyan]ℹ️  Both image and text found. Using image only.[/cyan]")
+                content = None  # Ignore text in image-only mode
+                use_image = True
             elif not file_path.suffix:
                 # No extension provided, mixed content -> suggest PDF
                 use_pdf = True
@@ -800,7 +809,7 @@ def main(
                 if file_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']:
                     use_image = True
                     content = None  # Use image only
-                    console.print("[cyan]ℹ️  Both found. Using image (use --text for text only).[/cyan]")
+                    console.print("[cyan]ℹ️  Both found. Using image (use --text-only for text).[/cyan]")
                 else:
                     image = None  # Use text only
                     console.print("[cyan]ℹ️  Both found. Using text (specify .pdf to include both).[/cyan]")
