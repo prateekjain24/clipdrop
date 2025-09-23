@@ -66,3 +66,11 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+Package.resolved
+src/clipdrop/bin/clipdrop-transcribe-clipboard

@@ -119,7 +119,6 @@ func getSupportedLocale(for requestedLocale: Locale) async -> Locale? {
         if let fallback = supportedLocales.first(where: {
           $0.identifier == fallbackId
         }) {
-          fputs("[helper] Using fallback locale: \(fallback.identifier) for requested: \(requestedLocale.identifier)\n", stderr)
           return fallback
         }
       }
@@ -129,7 +128,6 @@ func getSupportedLocale(for requestedLocale: Locale) async -> Locale? {
     if let langMatch = supportedLocales.first(where: {
       $0.language.languageCode?.identifier == requestedLang
     }) {
-      fputs("[helper] Using language match: \(langMatch.identifier) for requested: \(requestedLocale.identifier)\n", stderr)
       return langMatch
     }
   }
@@ -140,17 +138,12 @@ func getSupportedLocale(for requestedLocale: Locale) async -> Locale? {
 @available(macOS 26.0, *)
 func transcribeFile(at url: URL, lang: String?) async throws {
   let requestedLocale = lang.map(Locale.init(identifier:)) ?? Locale.current
-  fputs("[helper] Opened \(url.path)\n", stderr)
-  fputs("[helper] Requested locale: \(requestedLocale.identifier)\n", stderr)
-
   // Get supported locale with fallback
   guard let locale = await getSupportedLocale(for: requestedLocale) else {
     fputs("Error: Locale \(requestedLocale.identifier) not supported and no fallback available\n", stderr)
     fputs("Supported locales: \(await SpeechTranscriber.supportedLocales.map(\.identifier))\n", stderr)
     exit(2)
   }
-
-  fputs("[helper] Using locale: \(locale.identifier)\n", stderr)
 
   // Create transcriber with the supported locale
   let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
@@ -159,15 +152,12 @@ func transcribeFile(at url: URL, lang: String?) async throws {
   if let installRequest = try await AssetInventory.assetInstallationRequest(
     supporting: [transcriber]
   ) {
-    fputs("[helper] Downloading required models...\n", stderr)
+    fputs("Downloading required models...\n", stderr)
     try await installRequest.downloadAndInstall()
-    fputs("[helper] Models downloaded\n", stderr)
   }
 
   let audioFile = try AVAudioFile(forReading: url)
   let analyzer = SpeechAnalyzer(modules: [transcriber])
-
-  fputs("[helper] analyzeSequence starting\n", stderr)
 
   var emitted = 0
 
@@ -175,7 +165,6 @@ func transcribeFile(at url: URL, lang: String?) async throws {
   let resultsTask = Task {
     do {
       for try await result in transcriber.results {
-        fputs("[helper] received segment range=\(result.range)\n", stderr)
         let start = CMTimeGetSeconds(result.range.start)
         let duration = CMTimeGetSeconds(result.range.duration)
         let end = start + duration
@@ -184,29 +173,23 @@ func transcribeFile(at url: URL, lang: String?) async throws {
         print(json)
         emitted += 1
       }
-      fputs("[helper] results stream ended\n", stderr)
     } catch {
-      fputs("[helper] results sequence error: \(error)\n", stderr)
       throw error
     }
   }
 
   // Start analysis
   let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
-  fputs("[helper] analyzeSequence finished: \(String(describing: lastSampleTime))\n", stderr)
 
   // Finish analysis (this will terminate the results stream)
   if let lastSampleTime {
     try await analyzer.finalizeAndFinish(through: lastSampleTime)
-    fputs("[helper] analysis finalized\n", stderr)
   } else {
     await analyzer.cancelAndFinishNow()
-    fputs("[helper] analysis cancelled\n", stderr)
   }
 
   // Wait for results task to complete
   try await resultsTask.value
-  fputs("[helper] results task completed\n", stderr)
 
   if emitted == 0 {
     fputs("No speech detected.\n", stderr)
@@ -250,7 +233,6 @@ struct ClipdropTranscribeClipboardApp {
 
     if #available(macOS 26.0, *) {
       do {
-        fputs("Processing audio: \(audioURL.path)\n", stderr)
         try await transcribeFile(at: audioURL, lang: args.lang)
       } catch {
         fputs("Transcription failed: \(error)\n", stderr)
