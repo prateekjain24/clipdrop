@@ -16,6 +16,7 @@ from clipdrop.paranoid import (
     paranoid_gate,
     print_binary_skip_notice,
 )
+from clipdrop.subtitles import to_srt, to_txt, to_md
 from clipdrop.youtube import (
     validate_youtube_url,
     extract_video_id,
@@ -108,6 +109,127 @@ def version_callback(value: bool):
     if value:
         console.print(f"[cyan]clipdrop version {__version__}[/cyan]")
         raise typer.Exit()
+
+
+def handle_audio_transcription(
+    filename: Optional[str] = None,
+    paranoid_flag: bool = False,
+    lang: Optional[str] = None,
+) -> None:
+    """
+    Handle transcription of audio from clipboard.
+
+    Args:
+        filename: Optional output filename
+        paranoid_flag: Whether to apply paranoid mode
+        lang: Optional language code (e.g., 'en-US')
+    """
+    try:
+        from clipdrop.macos_ai import (
+            transcribe_from_clipboard_stream,
+            UnsupportedPlatformError,
+            UnsupportedMacOSVersionError,
+            HelperNotFoundError
+        )
+
+        # Determine output filename and format
+        if filename:
+            output_path = Path(filename)
+            ext = output_path.suffix.lower() or '.srt'
+            final_filename = filename
+        else:
+            # Generate default filename with timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            final_filename = f"transcript_{timestamp}.srt"
+            ext = '.srt'
+
+        console.print("[cyan]🎵 Audio detected in clipboard[/cyan]")
+        console.print(f"[dim]Output: {final_filename}[/dim]\n")
+
+        # Collect segments with progress display
+        segments = []
+        total_duration = 0.0
+
+        def progress_callback(segment: dict, count: int) -> None:
+            nonlocal total_duration
+            total_duration = segment.get('end', 0)
+
+        # Use Rich status for progress display
+        with console.status("[bold cyan]Transcribing audio...[/bold cyan]") as status:
+            try:
+                for segment in transcribe_from_clipboard_stream(lang=lang, progress_callback=progress_callback):
+                    segments.append(segment)
+                    # Update status with segment count and duration
+                    duration_str = f"{total_duration:.1f}s" if total_duration else ""
+                    status.update(
+                        f"[bold cyan]Transcribing... [{len(segments)} segments] {duration_str}[/bold cyan]"
+                    )
+            except RuntimeError as e:
+                if "No audio" in str(e):
+                    console.print("[red]❌ No audio found in clipboard[/red]")
+                    console.print("[dim]Please copy an audio file first, then try again.[/dim]")
+                elif "macOS" in str(e):
+                    console.print("[red]❌ Audio transcription requires macOS 26.0+[/red]")
+                    console.print("[dim]This feature uses on-device Apple Intelligence.[/dim]")
+                else:
+                    console.print(f"[red]❌ Transcription failed: {e}[/red]")
+                raise typer.Exit(1)
+
+        if not segments:
+            console.print("[yellow]⚠️  No speech detected in audio[/yellow]")
+            raise typer.Exit(1)
+
+        # Format output based on extension
+        if ext in ('.srt', ''):
+            content = to_srt(segments)
+        elif ext == '.txt':
+            content = to_txt(segments)
+        elif ext == '.md':
+            content = to_md(segments)
+        else:
+            console.print(f"[yellow]⚠️  Unknown format {ext}, using SRT[/yellow]")
+            content = to_srt(segments)
+
+        # Apply paranoid mode if requested
+        if paranoid_flag:
+            content = paranoid_gate(content, mode=ParanoidMode.SILENT)
+
+        # Save the file
+        try:
+            Path(final_filename).write_text(content, encoding='utf-8')
+            console.print(f"\n[green]✅ Saved transcript to {final_filename}[/green]")
+
+            # Show summary
+            console.print(f"[dim]Total segments: {len(segments)}[/dim]")
+            if total_duration:
+                minutes = int(total_duration // 60)
+                seconds = int(total_duration % 60)
+                console.print(f"[dim]Duration: {minutes}:{seconds:02d}[/dim]")
+
+        except Exception as e:
+            display_error(e, final_filename)
+            raise typer.Exit(1)
+
+    except UnsupportedPlatformError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        console.print("[yellow]This feature requires macOS with Apple Intelligence[/yellow]")
+        raise typer.Exit(1)
+
+    except UnsupportedMacOSVersionError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        console.print("[yellow]Please upgrade to macOS 26.0 or later[/yellow]")
+        raise typer.Exit(1)
+
+    except HelperNotFoundError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        raise typer.Exit(1)
+
+    except ImportError as e:
+        # Fallback for any other import issues
+        console.print("[red]❌ Audio transcription module not available[/red]")
+        console.print(f"[yellow]Error: {e}[/yellow]")
+        raise typer.Exit(1)
 
 
 def handle_youtube_transcript(
@@ -355,6 +477,12 @@ def main(
         "-yt",
         help="Download YouTube transcript from clipboard URL"
     ),
+    transcribe: bool = typer.Option(
+        False,
+        "--transcribe",
+        "-tr",
+        help="Transcribe audio from clipboard (macOS 26.0+)"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -405,6 +533,14 @@ def main(
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
+    # Check if this is transcribe mode (explicit flag)
+    if transcribe:
+        return handle_audio_transcription(
+            filename=filename,
+            paranoid_flag=paranoid_flag,
+            lang=lang,
+        )
+
     # Check if this is YouTube mode
     if youtube:
         return handle_youtube_transcript(
@@ -418,8 +554,22 @@ def main(
             chapters=chapters
         )
 
-    # For non-YouTube mode, filename is required
+    # For non-YouTube mode, check for auto-detection opportunities
     if filename is None:
+        # Try to auto-detect audio in clipboard
+        try:
+            from clipdrop.macos_ai import check_audio_in_clipboard
+            if check_audio_in_clipboard():
+                console.print("[cyan]🎵 Audio detected in clipboard[/cyan]")
+                return handle_audio_transcription(
+                    filename=None,
+                    paranoid_flag=paranoid_flag,
+                    lang=lang,
+                )
+        except (ImportError, RuntimeError):
+            pass  # Not on macOS or helper not available
+
+        # No audio detected, show help
         console.print("\n[red]📝 Please provide a filename[/red]")
         console.print("[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
         console.print("\n[dim]Examples:[/dim]")
@@ -427,6 +577,7 @@ def main(
         console.print("  clipdrop image.png     # Save image")
         console.print("  clipdrop data.json     # Save JSON")
         console.print("  clipdrop --youtube     # Download YouTube transcript")
+        console.print("  clipdrop --transcribe  # Transcribe audio from clipboard")
         console.print("  clipdrop -yt output.srt # YouTube with custom name")
         console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
         raise typer.Exit(1)
