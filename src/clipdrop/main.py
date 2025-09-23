@@ -594,22 +594,21 @@ def main(
             chapters=chapters
         )
 
-    # For non-YouTube mode, check for auto-detection opportunities
-    if filename is None:
-        # Try to auto-detect audio in clipboard
-        try:
-            from clipdrop.macos_ai import check_audio_in_clipboard
-            if check_audio_in_clipboard():
-                console.print("[cyan]🎵 Audio detected in clipboard[/cyan]")
-                return handle_audio_transcription(
-                    filename=None,
-                    paranoid_flag=paranoid_flag,
-                    lang=lang,
-                )
-        except (ImportError, RuntimeError):
-            pass  # Not on macOS or helper not available
+    # Check for audio in clipboard (with or without filename)
+    try:
+        from clipdrop.macos_ai import check_audio_in_clipboard
+        if check_audio_in_clipboard():
+            console.print("[cyan]🎵 Audio detected in clipboard[/cyan]")
+            return handle_audio_transcription(
+                filename=filename,
+                paranoid_flag=paranoid_flag,
+                lang=lang,
+            )
+    except (ImportError, RuntimeError):
+        pass  # Not on macOS or helper not available
 
-        # No audio detected, show help
+    # If no filename provided and no audio detected, show help
+    if filename is None:
         console.print("\n[red]📝 Please provide a filename[/red]")
         console.print("[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
         console.print("\n[dim]Examples:[/dim]")
