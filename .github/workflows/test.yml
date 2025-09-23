@@ -22,20 +22,22 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Build Swift helper for tests
+    - name: Verify Swift helper for tests
       if: runner.os == 'macOS'
       run: |
-        if [ -f scripts/build_swift.sh ]; then
-          echo "Building Swift helper for tests..."
-          bash scripts/build_swift.sh
-          echo "Swift helper built successfully"
+        echo "Verifying pre-built Swift helper for tests..."
 
-          # Verify the binary
-          if [ -f src/clipdrop/bin/clipdrop-transcribe-clipboard ]; then
-            file src/clipdrop/bin/clipdrop-transcribe-clipboard
-          else
-            echo "Warning: Swift helper not found after build"
-          fi
+        # Check if binary exists
+        if [ -f src/clipdrop/bin/clipdrop-transcribe-clipboard ]; then
+          echo "✅ Swift helper binary found"
+
+          # Verify it's a universal binary
+          file src/clipdrop/bin/clipdrop-transcribe-clipboard
+
+          # Ensure it's executable
+          chmod +x src/clipdrop/bin/clipdrop-transcribe-clipboard
+        else
+          echo "Warning: Swift helper not found - transcription tests will be skipped"
         fi
 
     - name: Install dependencies
