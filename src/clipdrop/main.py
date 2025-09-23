@@ -163,7 +163,7 @@ def handle_audio_transcription(
 
         def progress_callback(segment: dict, count: int) -> None:
             nonlocal total_duration
-            total_duration = segment.get('end', 0)
+            total_duration = max(total_duration, segment.get('end', 0))
 
         # Use Rich status for progress display
         with console.status("[bold cyan]Transcribing audio...[/bold cyan]") as status:
@@ -171,9 +171,15 @@ def handle_audio_transcription(
                 for segment in transcribe_from_clipboard_stream(lang=lang, progress_callback=progress_callback):
                     segments.append(segment)
                     # Update status with segment count and duration
-                    duration_str = f"{total_duration:.1f}s" if total_duration else ""
+                    if total_duration:
+                        hours = int(total_duration // 3600)
+                        minutes = int((total_duration % 3600) // 60)
+                        seconds = int(total_duration % 60)
+                        duration_str = f" {hours:02d}:{minutes:02d}:{seconds:02d}"
+                    else:
+                        duration_str = ""
                     status.update(
-                        f"[bold cyan]Transcribing... [{len(segments)} segments] {duration_str}[/bold cyan]"
+                        f"[bold cyan]Transcribing... [{len(segments)} segments]{duration_str}[/bold cyan]"
                     )
             except RuntimeError as e:
                 if "No audio" in str(e):
@@ -215,9 +221,10 @@ def handle_audio_transcription(
             # Show summary
             console.print(f"[dim]Total segments: {len(segments)}[/dim]")
             if total_duration:
-                minutes = int(total_duration // 60)
+                hours = int(total_duration // 3600)
+                minutes = int((total_duration % 3600) // 60)
                 seconds = int(total_duration % 60)
-                console.print(f"[dim]Duration: {minutes}:{seconds:02d}[/dim]")
+                console.print(f"[dim]Duration: {hours:02d}:{minutes:02d}:{seconds:02d}[/dim]")
 
         except Exception as e:
             display_error(e, final_filename)
