@@ -1,6 +1,6 @@
 [project]
 name = "clipdrop"
-version = "0.50"
+version = "1.0"
 description = "Save clipboard content (text and images) to files with smart format detection"
 readme = "README.md"
 authors = [
@@ -10,7 +10,7 @@ license = { text = "MIT" }
 requires-python = ">=3.10"
 keywords = ["clipboard", "cli", "productivity", "macos", "file-management", "text-processing", "image-processing"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "Topic :: Utilities",
