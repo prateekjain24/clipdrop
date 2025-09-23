@@ -37,7 +37,7 @@ def get_macos_version() -> Optional[tuple[int, int]]:
         parts = version.split('.')
         if len(parts) >= 2:
             return (int(parts[0]), int(parts[1]))
-    except:
+    except (ValueError, IndexError, AttributeError):
         pass
     return None
 

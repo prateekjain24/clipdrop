@@ -16,6 +16,11 @@ from clipdrop.paranoid import (
     paranoid_gate,
     print_binary_skip_notice,
 )
+from clipdrop.exceptions import (
+    YTDLPNotFoundError,
+    NoCaptionsError,
+    YouTubeError
+)
 from clipdrop.subtitles import to_srt, to_txt, to_md
 from clipdrop.youtube import (
     validate_youtube_url,
@@ -38,11 +43,6 @@ class ExitCode:
     PLATFORM_ERROR = 2     # Platform not supported (not macOS or wrong version)
     NO_SPEECH = 3          # Audio found but no speech detected
     TRANSCRIPTION_ERROR = 4  # General transcription failure
-from clipdrop.exceptions import (
-    YTDLPNotFoundError,
-    NoCaptionsError,
-    YouTubeError
-)
 
 console = Console()
 

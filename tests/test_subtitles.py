@@ -1,6 +1,5 @@
 """Tests for subtitle rendering functions."""
 
-import pytest
 
 from clipdrop.subtitles import _fmt_ts, to_md, to_srt, to_txt
 
