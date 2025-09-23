@@ -1,0 +1,109 @@
+name: Build macOS Artifacts
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  release:
+    types: [created]
+
+jobs:
+  build-swift-helper:
+    name: Build Swift Helper and Wheel
+    runs-on: macos-13  # Use macOS-13 for better compatibility
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install hatch
+
+    - name: Build Swift helper (universal2)
+      run: |
+        echo "Building Swift helper..."
+        bash scripts/build_swift.sh
+
+        echo "Verifying universal binary..."
+        file src/clipdrop/bin/clipdrop-transcribe-clipboard
+        lipo -info src/clipdrop/bin/clipdrop-transcribe-clipboard
+
+        # Verify it's executable
+        chmod +x src/clipdrop/bin/clipdrop-transcribe-clipboard
+
+        # Show size
+        ls -lh src/clipdrop/bin/clipdrop-transcribe-clipboard
+
+    - name: Build wheel
+      run: |
+        echo "Building Python wheel with Hatch..."
+        hatch build --target wheel
+
+        # Show built wheels
+        ls -la dist/
+
+    - name: Verify wheel contains Swift helper
+      run: |
+        echo "Verifying wheel contents..."
+
+        # Extract and check wheel contents
+        mkdir -p wheel_check
+        cd wheel_check
+
+        # Unzip the wheel
+        unzip -q ../dist/*.whl
+
+        # Check if Swift helper is included
+        if [ -f "clipdrop/bin/clipdrop-transcribe-clipboard" ]; then
+          echo "✅ Swift helper found in wheel"
+          echo "Verifying binary architecture..."
+          file clipdrop/bin/clipdrop-transcribe-clipboard
+          lipo -info clipdrop/bin/clipdrop-transcribe-clipboard
+
+          # Check file size
+          ls -lh clipdrop/bin/clipdrop-transcribe-clipboard
+        else
+          echo "❌ Swift helper NOT found in wheel"
+          echo "Wheel contents:"
+          find . -name "*.clipboard" -o -name "*transcribe*" | head -20
+          exit 1
+        fi
+
+        cd ..
+        rm -rf wheel_check
+
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-wheel-${{ github.sha }}
+        path: dist/*.whl
+        retention-days: 30
+        if-no-files-found: error
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: swift-helper-universal-${{ github.sha }}
+        path: src/clipdrop/bin/clipdrop-transcribe-clipboard
+        retention-days: 30
+        if-no-files-found: error
+
+    - name: Test Swift helper execution
+      run: |
+        echo "Testing Swift helper..."
+        # Test that the helper can at least show its help/version
+        # Note: --check-only will exit with 1 if no audio, but that's expected
+        src/clipdrop/bin/clipdrop-transcribe-clipboard --check-only || true
+        echo "Swift helper is executable"

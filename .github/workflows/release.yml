@@ -22,11 +22,22 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build twine
+        pip install hatch twine
+
+    - name: Build Swift helper
+      run: |
+        echo "Building Swift helper for release..."
+        bash scripts/build_swift.sh
+        echo "Swift helper built successfully"
+
+        # Verify the universal binary
+        echo "Verifying universal binary architecture..."
+        lipo -info src/clipdrop/bin/clipdrop-transcribe-clipboard
+        file src/clipdrop/bin/clipdrop-transcribe-clipboard
 
     - name: Build package
       run: |
-        python -m build
+        hatch build
 
     - name: Check package
       run: |
