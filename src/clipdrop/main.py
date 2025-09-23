@@ -259,7 +259,7 @@ def handle_youtube_transcript(
 
     Args:
         filename: Target filename (optional - defaults to video title)
-        paranoid_flag: Whether paranoid mode is enabled via flag
+        scan: Whether paranoid mode is enabled via flag
         force: Whether to force overwrite existing files
         preview: Whether to preview content before saving
         paranoid_mode: Paranoid mode setting
@@ -370,7 +370,7 @@ def handle_youtube_transcript(
                 console.print("[yellow]⚠️ No chapters available for this video[/yellow]")
 
         # Apply paranoid mode if enabled (skip for VTT to preserve format)
-        active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if paranoid_flag else None)
+        active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if scan else None)
         if active_paranoid and ext in ['.txt', '.md', '.srt']:
             content, _ = paranoid_gate(
                 content,
@@ -580,8 +580,12 @@ def main(
 
     [dim]For more help, visit: https://github.com/prateekjain24/clipdrop[/dim]
     """
+    # Define paranoid variables for compatibility
+    paranoid_flag = scan
+    paranoid_mode = scan_mode
+
     # Check if this is transcribe mode (explicit flag)
-    if transcribe:
+    if audio:
         return handle_audio_transcription(
             filename=filename,
             paranoid_flag=paranoid_flag,
@@ -592,7 +596,7 @@ def main(
     if youtube:
         return handle_youtube_transcript(
             filename=filename,  # Can be None for YouTube mode
-            paranoid_flag=paranoid_flag,
+            scan=paranoid_flag,
             force=force,
             preview=preview,
             paranoid_mode=paranoid_mode,
@@ -623,7 +627,7 @@ def main(
         console.print("  clipdrop image.png     # Save image")
         console.print("  clipdrop data.json     # Save JSON")
         console.print("  clipdrop --youtube     # Download YouTube transcript")
-        console.print("  clipdrop --transcribe  # Transcribe audio from clipboard")
+        console.print("  clipdrop --audio       # Transcribe audio from clipboard")
         console.print("  clipdrop -yt output.srt # YouTube with custom name")
         console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
         raise typer.Exit(1)
@@ -695,7 +699,7 @@ def main(
 
                     # Create enhanced PDF
                     pdf.create_pdf_from_enhanced_html(
-                        enhanced_chunks, file_path, educational_mode=educational
+                        enhanced_chunks, file_path, educational_mode=True
                     )
 
                     # Success message

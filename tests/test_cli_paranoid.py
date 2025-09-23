@@ -32,7 +32,7 @@ def test_cli_paranoid_redact():
     filename = "data.json"
 
     with runner.isolated_filesystem():
-        result = runner.invoke(app, [filename, "--paranoid=redact"])
+        result = runner.invoke(app, [filename, "--scan-mode", "redact"])
 
         assert result.exit_code == 0
 
@@ -44,7 +44,7 @@ def test_cli_paranoid_block():
     filename = "secrets.txt"
 
     with runner.isolated_filesystem():
-        result = runner.invoke(app, [filename, "--paranoid=block"])
+        result = runner.invoke(app, [filename, "--scan-mode", "block"])
 
         assert result.exit_code == 17
         assert not Path(filename).exists()
@@ -54,7 +54,7 @@ def test_cli_paranoid_prompt_yes():
     filename = "notes.txt"
 
     with runner.isolated_filesystem():
-        result = runner.invoke(app, [filename, "-p", "--yes"])
+        result = runner.invoke(app, [filename, "-s", "--yes"])
 
         assert result.exit_code == 0
 
@@ -66,7 +66,7 @@ def test_cli_paranoid_warn():
     filename = "warn.txt"
 
     with runner.isolated_filesystem():
-        result = runner.invoke(app, [filename, "--paranoid=warn"])
+        result = runner.invoke(app, [filename, "--scan-mode", "warn"])
 
         assert result.exit_code == 0
         saved = Path(filename).read_text(encoding="utf-8")

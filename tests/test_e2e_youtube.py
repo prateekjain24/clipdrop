@@ -18,10 +18,10 @@ from clipdrop.youtube import (
 )
 
 
-# Test video: "Me at the zoo" - First YouTube video (has captions)
-TEST_VIDEO_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
-TEST_VIDEO_ID = "jNQXAC9IVRw"
-TEST_VIDEO_TITLE = "Me at the zoo"
+# Test video: Working YouTube video with captions
+TEST_VIDEO_URL = "https://www.youtube.com/watch?v=0a-o9DZumjE"
+TEST_VIDEO_ID = "0a-o9DZumjE"
+TEST_VIDEO_TITLE = "test video"  # Update based on actual title
 
 
 def network_available():
@@ -62,14 +62,14 @@ class TestE2EYouTube:
         assert 'title' in info
         assert 'id' in info
         assert info['id'] == TEST_VIDEO_ID
-        # Title should contain "Me at the zoo" (case-insensitive)
-        assert "zoo" in info['title'].lower()
+        # Title should contain something from the video (case-insensitive)
+        assert "chatgpt" in info['title'].lower() or "founder" in info['title'].lower()
 
     def test_list_captions_real(self):
         """Test listing captions for real video."""
         captions = list_captions(TEST_VIDEO_URL)
 
-        # "Me at the zoo" should have at least captions
+        # Video should have at least some captions
         assert len(captions) > 0
 
         # Check caption structure (returns tuples)
