@@ -169,28 +169,33 @@ func transcribeFile(at url: URL, lang: String?) async throws {
 
   fputs("[helper] analyzeSequence starting\n", stderr)
 
+  var emitted = 0
+
+  // Start consuming results concurrently
+  let resultsTask = Task {
+    do {
+      for try await result in transcriber.results {
+        fputs("[helper] received segment range=\(result.range)\n", stderr)
+        let start = CMTimeGetSeconds(result.range.start)
+        let duration = CMTimeGetSeconds(result.range.duration)
+        let end = start + duration
+        let text = String(result.text.characters)
+        let json = #"{"start":\#(start.isFinite ? start : 0),"end":\#(end.isFinite ? end : start),"text":\#(text.jsonEscaped)}"#
+        print(json)
+        emitted += 1
+      }
+      fputs("[helper] results stream ended\n", stderr)
+    } catch {
+      fputs("[helper] results sequence error: \(error)\n", stderr)
+      throw error
+    }
+  }
+
   // Start analysis
   let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile)
   fputs("[helper] analyzeSequence finished: \(String(describing: lastSampleTime))\n", stderr)
 
-  var emitted = 0
-  do {
-    for try await result in transcriber.results {
-      fputs("[helper] received segment range=\(result.range)\n", stderr)
-      let start = CMTimeGetSeconds(result.range.start)
-      let duration = CMTimeGetSeconds(result.range.duration)
-      let end = start + duration
-      let text = String(result.text.characters)
-      let json = #"{"start":\#(start.isFinite ? start : 0),"end":\#(end.isFinite ? end : start),"text":\#(text.jsonEscaped)}"#
-      print(json)
-      emitted += 1
-    }
-  } catch {
-    fputs("[helper] results sequence error: \(error)\n", stderr)
-    throw error
-  }
-
-  // Finish analysis
+  // Finish analysis (this will terminate the results stream)
   if let lastSampleTime {
     try await analyzer.finalizeAndFinish(through: lastSampleTime)
     fputs("[helper] analysis finalized\n", stderr)
@@ -198,6 +203,10 @@ func transcribeFile(at url: URL, lang: String?) async throws {
     await analyzer.cancelAndFinishNow()
     fputs("[helper] analysis cancelled\n", stderr)
   }
+
+  // Wait for results task to complete
+  try await resultsTask.value
+  fputs("[helper] results task completed\n", stderr)
 
   if emitted == 0 {
     fputs("No speech detected.\n", stderr)
