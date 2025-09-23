@@ -1084,6 +1084,7 @@ app = typer.Typer(
          "PDF generation, smart format detection (JSON/Markdown/CSV), "
          "image optimization, and secret scanning.",
     add_completion=False,
+    rich_markup_mode="rich",
 )
 
 # Register main function as the only command
