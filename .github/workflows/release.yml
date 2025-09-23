@@ -24,16 +24,25 @@ jobs:
         python -m pip install --upgrade pip
         pip install hatch twine
 
-    - name: Build Swift helper
+    - name: Verify Swift helper binary
       run: |
-        echo "Building Swift helper for release..."
-        bash scripts/build_swift.sh
-        echo "Swift helper built successfully"
+        echo "Verifying pre-built Swift helper for release..."
+
+        # Check if binary exists
+        if [ ! -f "src/clipdrop/bin/clipdrop-transcribe-clipboard" ]; then
+          echo "❌ Swift helper binary not found!"
+          exit 1
+        fi
+
+        echo "✅ Swift helper binary found"
 
         # Verify the universal binary
         echo "Verifying universal binary architecture..."
         lipo -info src/clipdrop/bin/clipdrop-transcribe-clipboard
         file src/clipdrop/bin/clipdrop-transcribe-clipboard
+
+        # Ensure it's executable
+        chmod +x src/clipdrop/bin/clipdrop-transcribe-clipboard
 
     - name: Build package
       run: |

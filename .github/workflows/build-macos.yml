@@ -31,16 +31,22 @@ jobs:
         python -m pip install --upgrade pip
         pip install hatch
 
-    - name: Build Swift helper (universal2)
+    - name: Verify Swift helper binary exists
       run: |
-        echo "Building Swift helper..."
-        bash scripts/build_swift.sh
+        echo "Verifying pre-built Swift helper..."
 
+        # Check if binary exists
+        if [ ! -f "src/clipdrop/bin/clipdrop-transcribe-clipboard" ]; then
+          echo "❌ Swift helper binary not found!"
+          exit 1
+        fi
+
+        echo "✅ Swift helper binary found"
         echo "Verifying universal binary..."
         file src/clipdrop/bin/clipdrop-transcribe-clipboard
         lipo -info src/clipdrop/bin/clipdrop-transcribe-clipboard
 
-        # Verify it's executable
+        # Ensure it's executable
         chmod +x src/clipdrop/bin/clipdrop-transcribe-clipboard
 
         # Show size
