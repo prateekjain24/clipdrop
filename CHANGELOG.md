@@ -5,6 +5,60 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5] - 2025-09-23
+
+### ✨ Enhanced UX & Append Mode
+
+### Added
+- **Append mode (`-a/--append`)** - Build files over time without overwriting
+  - Smart separators based on file type (markdown gets `---`, logs get timestamps)
+  - Perfect for journals, notes, and log files
+- **Simplified flags for better UX**
+  - `--preview` now uses `-p` (lowercase, standard)
+  - `--scan/-s` replaces paranoid mode (clearer name)
+  - `--text-only` and `--image-only` for explicit control
+  - `--audio` replaces `--transcribe` (simpler)
+  - `-y` for `--yes` (standard convention)
+- **Comprehensive documentation**
+  - New `usage.md` with complete examples
+  - Redesigned README with product focus
+  - Clear workflows and use cases
+
+### Changed
+- Removed `--educational` flag (now default for PDFs)
+- Audio auto-detection works even with filename provided
+- Better error messages and conflict detection
+
+### Fixed
+- Audio transcription auto-detection with filenames
+- Flag naming conflicts and inconsistencies
+
+---
+
+## [1.0] - 2025-09-23
+
+### 🎵 Audio Transcription & Production Ready
+
+### Added
+- **On-device audio transcription** (macOS 26.0+)
+  - Uses Apple Intelligence for fast, private transcription
+  - Auto-detects audio in clipboard
+  - Real-time progress feedback
+  - Outputs to SRT, TXT, or Markdown
+  - Multi-language support with locale fallback
+- **Production-ready release**
+  - Pre-built Swift binary for compatibility
+  - Standardized exit codes
+  - GitHub Actions CI/CD pipeline
+  - Comprehensive test coverage
+
+### Technical
+- Swift helper binary using SpeechTranscriber API
+- Universal binary (arm64 + x86_64)
+- Robust platform detection and error handling
+
+---
+
 ## [0.50] - 2025-09-22
 
 ### 🎥 Major Feature Release - YouTube Transcript Support
