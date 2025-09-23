@@ -28,6 +28,11 @@ This workflow interruption is especially painful for:
 
 ## Features
 
+- **Audio Transcription**: On-device audio transcription using Apple Intelligence (macOS 26.0+) 🎵
+  - Auto-detects audio in clipboard - just run `clipdrop`
+  - Real-time progress feedback with segment count
+  - Supports SRT, TXT, and MD output formats
+  - Multi-language support with `--lang` option
 - **YouTube Transcripts**: Download video transcripts in multiple formats (SRT, VTT, TXT, MD) 🎥
 - **Web Content Support**: Save content from web pages with embedded images 🌐
 - **PDF Creation**: Save mixed content (text + images) as PDF to preserve context 📄
@@ -90,6 +95,11 @@ clipdrop document           # → document.pdf (mixed content auto-detected)
 clipdrop data               # → data.json (if JSON detected)
 clipdrop readme             # → readme.md (if Markdown detected)
 
+# Audio transcription (macOS 26.0+)
+clipdrop                    # → transcript_20240323_143022.srt (auto-detects audio)
+clipdrop meeting.srt        # → meeting.srt (if audio in clipboard)
+clipdrop notes.txt          # → notes.txt (transcribed as plain text)
+
 # Specify extension explicitly
 clipdrop report.pdf         # Save any content as PDF
 clipdrop photo.jpg          # Save as JPEG
@@ -117,7 +127,11 @@ clipdrop env.txt --paranoid=prompt --yes  # explicit prompt mode with auto-yes
 
 # Force text mode when both image and text are in clipboard
 clipdrop notes.txt --text
-clipdrop notes.txt -t
+
+# Transcribe audio from clipboard (macOS 26.0+)
+clipdrop --transcribe                    # Auto-generate: transcript_YYYYMMDD_HHMMSS.srt
+clipdrop --transcribe meeting.txt        # Save as plain text
+clipdrop -t notes.md --lang en-US        # Specify language and format
 
 # Download YouTube video transcripts
 clipdrop --youtube                        # Download from clipboard URL (defaults to English)
@@ -193,6 +207,30 @@ clipdrop report.pdf       # Always creates PDF
 # • Text with code → formatted in PDF
 # • Screenshots → embedded in PDF
 # • Mixed notes → structured document
+```
+
+#### Transcribe audio from clipboard (macOS 26.0+)
+```bash
+# Copy audio file to clipboard, then:
+clipdrop                         # Auto-detects and transcribes
+# 🎵 Audio detected in clipboard
+# ⏳ Transcribing audio...
+# 📝 Processing segments: 42
+# ✅ Saved 2.1 KB to transcript_20240323_143022.srt
+
+# Explicit transcription with custom filename
+clipdrop meeting.srt            # Transcribe to SRT format
+clipdrop notes.txt              # Transcribe to plain text
+clipdrop summary.md             # Transcribe to Markdown
+
+# Specify language for better accuracy
+clipdrop --lang en-US           # American English
+clipdrop --lang es-ES           # Spanish (Spain)
+clipdrop --lang fr-FR           # French (France)
+
+# Use --transcribe flag when auto-detection fails
+clipdrop --transcribe           # Force transcription mode
+clipdrop -t meeting.txt         # Short flag variant
 ```
 
 #### Download YouTube transcripts
@@ -313,7 +351,8 @@ clipdrop/
 ## 📝 Requirements
 
 - **Python**: 3.10, 3.11, 3.12, or 3.13
-- **OS**: macOS 10.15+ (initial target)
+- **OS**: macOS 10.15+ (general features)
+  - macOS 26.0+ required for on-device audio transcription using Apple Intelligence
 - **Dependencies**:
   - typer[all] >= 0.17.4
   - rich >= 14.1.0
