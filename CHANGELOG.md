@@ -5,6 +5,18 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2025-09-23
+
+### 🐛 Bug Fixes
+
+### Fixed
+- Variable reference errors from flag simplification
+- Test suite compatibility with new flag syntax
+- YouTube E2E test with updated video URL
+- All 280 tests now passing
+
+---
+
 ## [1.5] - 2025-09-23
 
 ### ✨ Enhanced UX & Append Mode
