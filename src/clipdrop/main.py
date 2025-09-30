@@ -250,23 +250,25 @@ def summarize_document(
         console.print("✨ Summary added to file", style="green")
         return
 
-    error_message = summary_result.error or "Summarization failed"
+    failure_reason = summary_result.error or "Summarization failed"
     if summary_result.retryable:
-        error_message += " (try again shortly)"
+        failure_reason += " (try again shortly)"
     if summary_result.stage:
-        error_message += f" [stage: {summary_result.stage}]"
-    console.print(f"❌ Summarization failed: {error_message}", style="red")
+        failure_reason += f" [stage: {summary_result.stage}]"
 
     fallback_summary = generate_fallback_summary(
         content,
-        note=fallback_note or "Fallback summary generated locally",
+        note=fallback_note or f"Fallback summary generated locally (source: {failure_reason})",
     )
     if fallback_summary:
         _write_summary_with_body(file_path, fallback_summary, content)
         console.print(
-            "⚠️ Summarizer unavailable; appended fallback summary",
+            f"⚠️ Summarizer unavailable; appended fallback summary ({failure_reason})",
             style="yellow",
         )
+        return
+
+    console.print(f"❌ Summarization failed: {failure_reason}", style="red")
 
 
 def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:

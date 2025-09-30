@@ -254,7 +254,7 @@ Summarize the following section in a short paragraph:
                 stage: "aggregation"
             )
         } catch let failure as SummarizationFailure {
-            if failure.message == placeholderMessage {
+            if failure.message == placeholderMessage || failure.message == "Content too long for processing" {
                 let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences, note: "Fallback summary generated due to unavailable model output")
                 let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
                 warnings.append("Aggregation used fallback summarization")

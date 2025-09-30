@@ -164,7 +164,7 @@ def test_cli_summarize_handles_failure(monkeypatch):
         assert result.exit_code == 0
 
         saved = Path("report.txt").read_text(encoding="utf-8")
-        assert saved.startswith("> _Fallback summary generated locally_")
+        assert saved.startswith("> _Fallback summary generated locally")
         assert "**Overall:**" in saved
         assert "### Key Takeaways" in saved
         assert "⚠️ Summarizer unavailable" in result.stdout
@@ -313,11 +313,10 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         result = runner.invoke(app, ["chunked-fail", "--summarize"])
         assert result.exit_code == 0
         stdout = result.stdout
-        assert "Summarization failed" in stdout
         assert "chunk_summaries" in stdout
-        assert "⚠️ Summarizer unavailable" in stdout
+        assert "⚠️ Summarizer unavailable; appended fallback summary" in stdout
         saved = Path("chunked-fail.txt").read_text(encoding="utf-8")
-        assert saved.startswith("> _Fallback summary generated locally_")
+        assert saved.startswith("> _Fallback summary generated locally")
         assert "**Overall:**" in saved
         assert "### Key Takeaways" in saved
         _, _, body = saved.partition("\n---\n\n")
