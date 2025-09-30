@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import platform
 import subprocess
+from dataclasses import dataclass
 from importlib.resources import files
+from pathlib import Path
 from typing import Any, Callable, Generator, Optional
 
 
@@ -25,6 +27,11 @@ class UnsupportedMacOSVersionError(TranscriptionNotAvailableError):
 
 class HelperNotFoundError(TranscriptionNotAvailableError):
     """Raised when helper binary is missing."""
+    pass
+
+
+class SummarizationNotAvailableError(Exception):
+    """Raised when the summarization helper cannot be used."""
     pass
 
 
@@ -75,6 +82,30 @@ def helper_path() -> str:
         )
 
     return str(helper)
+
+
+def get_swift_helper_path(helper_name: str) -> Path:
+    """Return path to a packaged Swift helper binary for macOS 26.0+."""
+
+    if platform.system() != "Darwin":
+        raise SummarizationNotAvailableError(
+            "On-device summarization is only available on macOS. "
+            f"Current platform: {platform.system()}"
+        )
+
+    version = get_macos_version()
+    if version and version[0] < 26:
+        raise SummarizationNotAvailableError(
+            "On-device summarization requires macOS 26.0 or later."
+        )
+
+    helper_path = files("clipdrop").joinpath(f"bin/{helper_name}")
+    if not helper_path.exists():
+        raise SummarizationNotAvailableError(
+            f"{helper_name} helper not found. Please rebuild with scripts/build_swift.sh."
+        )
+
+    return helper_path
 
 
 def transcribe_from_clipboard(lang: str | None = None) -> list[dict[str, Any]]:
@@ -221,3 +252,79 @@ def check_audio_in_clipboard() -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
         return False
+
+
+def summarize_content(content: str, timeout: int = 30) -> SummaryResult:
+    """Summarize text using the on-device Apple Intelligence helper."""
+
+    stripped = content.strip()
+    if len(stripped) < 200:
+        return SummaryResult(
+            success=False,
+            error="Content too short for summarization (minimum 200 characters)"
+        )
+
+    if len(content) > 15_000:
+        return SummaryResult(
+            success=False,
+            error="Content too long for summarization (maximum ~15,000 characters)"
+        )
+
+    try:
+        helper = get_swift_helper_path("clipdrop-summarize")
+    except SummarizationNotAvailableError as exc:
+        return SummaryResult(success=False, error=str(exc))
+
+    try:
+        process = subprocess.run(  # noqa: S603, S607 - controlled args
+            [str(helper)],
+            input=content,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return SummaryResult(success=False, error="Summarization timed out")
+    except FileNotFoundError:
+        return SummaryResult(success=False, error="Summarization helper not found")
+    except subprocess.SubprocessError as exc:
+        return SummaryResult(success=False, error=f"Summarization failed: {exc}")
+
+    stdout = (process.stdout or "").strip()
+    stderr = (process.stderr or "").strip()
+
+    if process.returncode != 0:
+        error_payload = stdout or stderr
+        if error_payload:
+            try:
+                data = json.loads(error_payload)
+                return SummaryResult(
+                    success=False,
+                    error=data.get("error") or "Summarization failed"
+                )
+            except json.JSONDecodeError:
+                return SummaryResult(
+                    success=False,
+                    error=f"Summarization failed: {error_payload}"
+                )
+        return SummaryResult(success=False, error="Summarization failed")
+
+    if not stdout:
+        return SummaryResult(success=False, error="Summarization returned no data")
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        return SummaryResult(success=False, error="Failed to parse summarization result")
+
+    if data.get("success"):
+        return SummaryResult(success=True, summary=(data.get("summary") or "").strip())
+
+    return SummaryResult(success=False, error=data.get("error", "Summarization failed"))
+
+
+@dataclass(slots=True)
+class SummaryResult:
+    success: bool
+    summary: Optional[str] = None
+    error: Optional[str] = None
