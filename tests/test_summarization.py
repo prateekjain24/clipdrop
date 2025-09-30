@@ -160,7 +160,8 @@ def test_cli_summarize_handles_failure(monkeypatch):
         assert result.exit_code == 0
 
         saved = Path("report.txt").read_text(encoding="utf-8")
-        assert "## Summary" not in saved
+        assert "## Summary (Fallback)" in saved
+        assert "⚠️ Summarizer unavailable" in result.stdout
 
 
 def test_cli_summarize_long_content_uses_chunking(monkeypatch):
@@ -298,3 +299,6 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         stdout = result.stdout
         assert "Summarization failed" in stdout
         assert "chunk_summaries" in stdout
+        assert "⚠️ Summarizer unavailable" in stdout
+        saved = Path("chunked-fail.txt").read_text(encoding="utf-8")
+        assert "## Summary (Fallback)" in saved

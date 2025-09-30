@@ -165,6 +165,15 @@ Summarize the following section in a short paragraph:
                     stage: "chunk_summaries"
                 )
 
+                guard !isPlaceholderResponse(chunkSummary) else {
+                    throw SummarizationFailure(
+                        message: "Model returned placeholder response",
+                        stage: "chunk_summaries",
+                        retryable: true,
+                        stageResults: stageResults
+                    )
+                }
+
                 chunkSummaries.append(
                     ChunkSummary(id: chunk.id ?? "chunk-\(idx)", index: chunk.index ?? idx, summary: chunkSummary)
                 )
@@ -227,6 +236,16 @@ Summarize the following section in a short paragraph:
             )
         }
 
+        guard !isPlaceholderResponse(finalSummary) else {
+            stageResults.append(StageResult(stage: "aggregation", status: "error", processed: nil, progress: 100))
+            throw SummarizationFailure(
+                message: "Model returned placeholder response",
+                stage: "aggregation",
+                retryable: true,
+                stageResults: stageResults
+            )
+        }
+
         stageResults.append(StageResult(stage: "aggregation", status: "ok", processed: nil, progress: 100))
 
         let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
@@ -254,7 +273,11 @@ Summarize the following section in a short paragraph:
         let session = LanguageModelSession(instructions: instructions)
         do {
             let response = try await session.respond(to: prompt, options: options)
-            return response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !isPlaceholderResponse(trimmed) else {
+                throw SummarizationFailure(message: "Model returned placeholder response", stage: stage, retryable: true)
+            }
+            return trimmed
         } catch let error as LanguageModelSession.GenerationError {
             let message = generationErrorMessage(for: error)
             let retryable = isRetryable(error: error)
@@ -315,6 +338,18 @@ Combine them into a cohesive summary of the overall content. Use approximately \
     }
 
     private static func isRetryable(error: LanguageModelSession.GenerationError) -> Bool { false }
+
+    private static func isPlaceholderResponse(_ text: String) -> Bool {
+        let lowered = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let patterns = [
+            "please provide the text you would like summarized",
+            "provide the text you'd like summarized",
+            "provide the text you would like summarized",
+            "please provide the text to summarize",
+            "send the text you'd like summarized"
+        ]
+        return patterns.contains { lowered.contains($0) }
+    }
 }
 
 // MARK: - Models

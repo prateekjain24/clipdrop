@@ -1,3 +1,4 @@
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -54,6 +55,26 @@ class ExitCode:
     TRANSCRIPTION_ERROR = 4  # General transcription failure
 
 console = Console()
+
+
+def generate_fallback_summary(content: str, max_sentences: int = 3) -> str:
+    """Generate a basic extractive summary by taking the first few sentences."""
+
+    text = content.strip()
+    if not text:
+        return ""
+
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if sentence.strip()
+    ]
+
+    if not sentences:
+        return ""
+
+    selected = sentences[:max_sentences]
+    return " ".join(selected)
 
 
 def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:
@@ -1103,6 +1124,7 @@ def main(
                             helper_format = "markdown"
 
                         language_for_summary = lang or "en-US"
+                        summary_result = None
 
                         if use_chunking:
                             chunk_estimate = max(
@@ -1141,6 +1163,8 @@ def main(
                                 summary_result = summarize_content(content)
                                 progress.update(task_id, completed=1)
 
+                        assert summary_result is not None
+
                         if use_chunking and summary_result.stage_results:
                             console.print("📊 Summarization stages:", style="dim")
                             for stage_info in summary_result.stage_results:
@@ -1172,10 +1196,30 @@ def main(
                                 error_message += " (try again shortly)"
                             if summary_result.stage:
                                 error_message += f" [stage: {summary_result.stage}]"
+
                             console.print(
                                 f"❌ Summarization failed: {error_message}",
                                 style="red",
                             )
+
+                            fallback_summary = generate_fallback_summary(content)
+                            if fallback_summary:
+                                summary_section = (
+                                    "\n\n---\n\n## Summary (Fallback)\n"
+                                    f"{fallback_summary}\n"
+                                )
+                                try:
+                                    with open(file_path, "a", encoding="utf-8") as handle:
+                                        handle.write(summary_section)
+                                    console.print(
+                                        "⚠️ Summarizer unavailable; appended fallback extractive summary",
+                                        style="yellow",
+                                    )
+                                except OSError as exc:
+                                    console.print(
+                                        f"❌ Failed to append summary: {exc}",
+                                        style="red",
+                                    )
 
     except typer.Abort:
         # User cancelled operation
