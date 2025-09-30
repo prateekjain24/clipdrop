@@ -51,7 +51,7 @@ clipdrop log.txt            # Save as text file
 |------|-------------|---------|
 | `--lang CODE` | Language for transcripts | `clipdrop -yt --lang es` |
 | `--chapters` | Include YouTube chapter markers | `clipdrop -yt video.md --chapters` |
-| `--summarize` | `-S` | Append AI summary after saving (macOS 26.0+) | `clipdrop notes.md --summarize` |
+| `--summarize` | `-S` | Generate structured summary at top (macOS 26.0+) | `clipdrop notes.md --summarize` |
 | `--version` | Show version | `clipdrop --version` |
 | `--help` | Show help | `clipdrop --help` |
 
@@ -99,13 +99,10 @@ Download video transcripts for research:
 ```bash
 # Copy YouTube URL to clipboard, then:
 clipdrop -yt                          # Auto-names from video title
-
-# Specific format and language
 clipdrop -yt lecture.md --lang en     # Markdown with timestamps
 clipdrop -yt subtitles.srt --lang es  # Spanish subtitles
-
-# Include chapter markers
-clipdrop -yt tutorial.md --chapters
+clipdrop -yt research.txt --summarize # Transcript + summary
+clipdrop -yt tutorial.md --chapters   # Include chapter markers
 ```
 
 ### 5. Audio Transcription (macOS 26.0+)
@@ -113,8 +110,8 @@ Transcribe audio files using Apple Intelligence:
 ```bash
 # Copy audio file to clipboard, then:
 clipdrop                               # Auto-detects audio → transcript_[timestamp].srt
-clipdrop meeting.txt                  # Transcribe to plain text
-clipdrop interview.md                 # Transcribe to markdown
+clipdrop meeting.txt --summarize      # Plain text + summary
+clipdrop interview.md --summarize     # Markdown + summary
 
 # Force audio mode if not detected
 clipdrop --audio notes.txt

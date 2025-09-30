@@ -5,21 +5,24 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.6.0] - 2025-09-30
+## [1.6.5] - 2025-10-01
 
-### ✨ Summaries on macOS 26.0+
+### ✨ Structured Summaries Everywhere
 
 ### Added
-- On-device summarization helper powered by Apple Intelligence foundation models
-- `--summarize` / `-S` CLI flag to append AI summaries to saved text
-- Eligibility checks for content length, format, and platform availability
-- Build automation for `clipdrop-summarize` universal binary and Python bridge tests
+- Markdown summaries now include `**Overall**`, `### Key Takeaways`, `### Action Items`, and `### Questions`
+- Summaries appear at the top of saved files, with transcript separated by `---`
+- `--summarize` now works for YouTube transcripts and audio transcription output
+- Local fallback summaries keep working even if Apple Intelligence returns placeholder text
 
 ### Changed
-- README/usage docs now highlight summarization workflows and requirements
-- Version bumped to 1.6.0
+- Swift helper prompts generate richer insights and auto-detect placeholder responses
+- CLI summary flow consolidated with consistent progress messages and better warnings
+- Token budget increased to 500 response tokens to capture more detail
 
 ---
+
+## [1.6.0] - 2025-09-30
 
 ## [1.5.3] - 2025-09-23
 

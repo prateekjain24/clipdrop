@@ -68,14 +68,19 @@ clipdrop meeting.txt  # → meeting notes as plain text
 ```
 
 ### 4. 🤖 **On-Device Summaries** (macOS 26.0+)
-Turn long clipboard text into concise takeaways without leaving your machine:
+Get an executive-ready recap before the raw transcript:
 ```bash
-# Save article and append summary
+# Save article + structured summary at the top
 clipdrop research-notes.md --summarize
 
-# Skip when content is too short or non-text
-clipdrop notes.txt --summarize
+# Works for YouTube transcripts and audio, too
+clipdrop -yt briefing.md --summarize
+clipdrop --audio meeting.txt --summarize
 ```
+Summaries include:
+- **Overall** headline sentence
+- Sections for **Key Takeaways**, **Action Items**, and **Questions**
+- Local fallback when Apple Intelligence is busy, so you always get something useful
 
 ### 5. 🎥 **YouTube Transcripts**
 Research videos efficiently:
@@ -83,6 +88,7 @@ Research videos efficiently:
 # Copy YouTube URL, then:
 clipdrop -yt                    # Download transcript
 clipdrop -yt lecture.md --lang es  # Spanish transcript
+clipdrop -yt notes.md --summarize  # Transcript + structured summary
 ```
 
 ### 6. 🔒 **Secret Scanner**
@@ -134,6 +140,7 @@ clipdrop article.pdf
 
 # Download YouTube lectures
 clipdrop -yt lecture.md
+clipdrop -yt lecture.md --summarize
 
 # Build research document
 clipdrop research.md -a
