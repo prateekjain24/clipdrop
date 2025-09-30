@@ -193,6 +193,11 @@ def test_cli_summarize_long_content_uses_chunking(monkeypatch):
         lambda max_chars=200: long_content[:max_chars],
     )
 
+    monkeypatch.setattr(
+        "clipdrop.detect.is_summarizable_content",
+        lambda _content, _format: (False, detect.SINGLE_PASS_LIMIT_REASON),
+    )
+
     with runner.isolated_filesystem():
         result = runner.invoke(app, ["scroll", "--summarize"])
         assert result.exit_code == 0
@@ -204,3 +209,92 @@ def test_cli_summarize_long_content_uses_chunking(monkeypatch):
         assert kwargs["content_format"] == "plaintext"
         assert kwargs["metadata"]["source_filename"] == "scroll.txt"
         assert kwargs["language"] == "en-US"
+
+
+def test_cli_chunking_stage_output(monkeypatch, tmp_path):
+    from clipdrop import main as clipdrop_main
+
+    long_content = Path("tests/fixtures/long_text.txt").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "clipdrop.main.summarize_content",
+        lambda *_args, **_kwargs: pytest.fail("Should not use single-pass summarizer"),
+    )
+
+    stage_results = [
+        {"stage": "precheck", "status": "ok"},
+        {"stage": "chunk_summaries", "status": "ok", "processed": 5},
+        {"stage": "aggregation", "status": "ok"},
+    ]
+
+    monkeypatch.setattr(
+        "clipdrop.main.summarize_content_with_chunking",
+        lambda *_args, **_kwargs: SummaryResult(
+            success=True,
+            summary="Chunked success summary",
+            stage_results=stage_results,
+        ),
+    )
+
+    monkeypatch.setattr(
+        "clipdrop.detect.is_summarizable_content",
+        lambda _content, _format: (False, detect.SINGLE_PASS_LIMIT_REASON),
+    )
+
+    monkeypatch.setattr(clipdrop_main.clipboard, "get_text", lambda: long_content)
+    monkeypatch.setattr(
+        clipdrop_main.clipboard,
+        "get_content_preview",
+        lambda max_chars=200: long_content[:max_chars],
+    )
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["chunked", "--summarize"])
+        assert result.exit_code == 0
+
+        stdout = result.stdout
+        assert "📊 Summarization stages:" in stdout
+        assert "chunk_summaries" in stdout
+        saved = Path("chunked.txt").read_text(encoding="utf-8")
+        assert "Chunked success summary" in saved
+
+
+def test_cli_chunking_failure_reports_stage(monkeypatch):
+    from clipdrop import main as clipdrop_main
+
+    long_content = Path("tests/fixtures/long_text.txt").read_text(encoding="utf-8")
+
+    monkeypatch.setattr(
+        "clipdrop.main.summarize_content",
+        lambda *_args, **_kwargs: pytest.fail("Should not use single-pass summarizer"),
+    )
+
+    def failing_chunker(*_args, **_kwargs):
+        return SummaryResult(
+            success=False,
+            summary=None,
+            error="Model not ready",
+            retryable=True,
+            stage="chunk_summaries",
+            stage_results=[{"stage": "chunk_summaries", "status": "error", "processed": 2}],
+        )
+
+    monkeypatch.setattr("clipdrop.main.summarize_content_with_chunking", failing_chunker)
+    monkeypatch.setattr(
+        "clipdrop.detect.is_summarizable_content",
+        lambda _content, _format: (False, detect.SINGLE_PASS_LIMIT_REASON),
+    )
+
+    monkeypatch.setattr(clipdrop_main.clipboard, "get_text", lambda: long_content)
+    monkeypatch.setattr(
+        clipdrop_main.clipboard,
+        "get_content_preview",
+        lambda max_chars=200: long_content[:max_chars],
+    )
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["chunked-fail", "--summarize"])
+        assert result.exit_code == 0
+        stdout = result.stdout
+        assert "Summarization failed" in stdout
+        assert "chunk_summaries" in stdout
