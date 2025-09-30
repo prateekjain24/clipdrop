@@ -22,6 +22,7 @@ Target NUMBER_SENTENCES sentences.
 """
 
     private static let singlePassLimit = 15_000
+    private static let placeholderMessage = "Model returned placeholder response"
 
     static func main() async {
         let result: SummaryResult
@@ -165,19 +166,21 @@ Summarize the following section in a short paragraph:
                     stage: "chunk_summaries"
                 )
 
-                guard !isPlaceholderResponse(chunkSummary) else {
-                    throw SummarizationFailure(
-                        message: "Model returned placeholder response",
-                        stage: "chunk_summaries",
-                        retryable: true,
-                        stageResults: stageResults
-                    )
-                }
-
                 chunkSummaries.append(
                     ChunkSummary(id: chunk.id ?? "chunk-\(idx)", index: chunk.index ?? idx, summary: chunkSummary)
                 )
             } catch let failure as SummarizationFailure {
+                if failure.message == placeholderMessage {
+                    let fallback = fallbackSummary(from: snippet, targetSentences: 2)
+                    if !fallback.isEmpty {
+                        warnings.append("Chunk \(chunk.displayName) used fallback summarization")
+                        chunkSummaries.append(
+                            ChunkSummary(id: chunk.id ?? "chunk-\(idx)", index: chunk.index ?? idx, summary: fallback)
+                        )
+                        continue
+                    }
+                }
+
                 let progress = Int(Double(idx) / Double(sortedChunks.count) * 70.0)
                 stageResults.append(StageResult(stage: "chunk_summaries", status: "error", processed: idx, progress: progress))
                 throw SummarizationFailure(
@@ -227,21 +230,30 @@ Summarize the following section in a short paragraph:
                 stage: "aggregation"
             )
         } catch let failure as SummarizationFailure {
+            if failure.message == placeholderMessage {
+                let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences)
+                let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+                warnings.append("Aggregation used fallback summarization")
+                stageResults.append(StageResult(stage: "aggregation", status: "fallback", processed: nil, progress: 100))
+                return SummaryResult(
+                    success: true,
+                    summary: fallback,
+                    error: nil,
+                    retryable: nil,
+                    stage: nil,
+                    warnings: warnings,
+                    stageResults: stageResults,
+                    mode: request.mode ?? "chunked",
+                    version: request.version ?? "1.0",
+                    elapsedMs: elapsedMs
+                )
+            }
+
             stageResults.append(StageResult(stage: "aggregation", status: "error", processed: nil, progress: 90))
             throw SummarizationFailure(
                 message: failure.message,
                 stage: failure.stage ?? "aggregation",
                 retryable: failure.retryable,
-                stageResults: stageResults
-            )
-        }
-
-        guard !isPlaceholderResponse(finalSummary) else {
-            stageResults.append(StageResult(stage: "aggregation", status: "error", processed: nil, progress: 100))
-            throw SummarizationFailure(
-                message: "Model returned placeholder response",
-                stage: "aggregation",
-                retryable: true,
                 stageResults: stageResults
             )
         }
@@ -275,7 +287,7 @@ Summarize the following section in a short paragraph:
             let response = try await session.respond(to: prompt, options: options)
             let trimmed = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !isPlaceholderResponse(trimmed) else {
-                throw SummarizationFailure(message: "Model returned placeholder response", stage: stage, retryable: true)
+                throw SummarizationFailure(message: placeholderMessage, stage: stage, retryable: true)
             }
             return trimmed
         } catch let error as LanguageModelSession.GenerationError {
@@ -349,6 +361,46 @@ Combine them into a cohesive summary of the overall content. Use approximately \
             "send the text you'd like summarized"
         ]
         return patterns.contains { lowered.contains($0) }
+    }
+
+    private static func fallbackSummary(from text: String, targetSentences: Int) -> String {
+        extractSentences(from: text, limit: targetSentences)
+    }
+
+    private static func fallbackSummary(fromChunks chunks: [ChunkSummary], targetSentences: Int) -> String {
+        let combined = chunks.sorted { $0.index < $1.index }
+            .map { $0.summary }
+            .joined(separator: " ")
+        return extractSentences(from: combined, limit: targetSentences)
+    }
+
+    private static func extractSentences(from text: String, limit: Int) -> String {
+        guard limit > 0 else { return "" }
+
+        var sentences: [String] = []
+        var current = ""
+        for character in text {
+            current.append(character)
+            if ".!?".contains(character) {
+                let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    sentences.append(trimmed)
+                }
+                current.removeAll(keepingCapacity: true)
+                if sentences.count >= limit {
+                    break
+                }
+            }
+        }
+
+        if sentences.count < limit {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                sentences.append(trimmed)
+            }
+        }
+
+        return sentences.prefix(limit).joined(separator: " ")
     }
 }
 
