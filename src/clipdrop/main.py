@@ -162,6 +162,40 @@ def _normalize_summary_language(lang: Optional[str]) -> str:
     return cleaned
 
 
+def _prepare_summary_source(content: str, content_format: str) -> tuple[str, str]:
+    fmt = (content_format or "").lower()
+    analysis_format = 'plaintext'
+    text = content
+
+    if fmt in {'srt', 'vtt'}:
+        cleaned_lines: list[str] = []
+        for raw_line in content.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if fmt == 'srt':
+                if line.isdigit():
+                    continue
+                if re.match(r"\d{2}:\d{2}:\d{2},\d{3}\s+-->\s+\d{2}:\d{2}:\d{2},\d{3}", line):
+                    continue
+            else:  # vtt
+                if line.upper() == 'WEBVTT':
+                    continue
+                if '-->' in line:
+                    continue
+            cleaned_lines.append(line)
+        text = '\n'.join(cleaned_lines)
+    elif fmt in {'md', 'markdown'}:
+        analysis_format = 'markdown'
+    elif fmt in {'html'}:
+        analysis_format = 'html'
+
+    if not text.strip():
+        text = content
+
+    return text, analysis_format
+
+
 def summarize_document(
     *,
     content: str,
@@ -172,7 +206,13 @@ def summarize_document(
 ) -> None:
     console.print("🤖 Generating summary...", style="dim")
 
-    is_suitable, reason = detect.is_summarizable_content(content, content_format)
+    summary_source, analysis_format = _prepare_summary_source(content, content_format)
+
+    if not summary_source.strip():
+        console.print("⚠️  Summarization skipped: no usable content", style="yellow")
+        return
+
+    is_suitable, reason = detect.is_summarizable_content(summary_source, analysis_format)
     reason_text = reason or ""
 
     use_chunking = False
@@ -199,7 +239,7 @@ def summarize_document(
     if use_chunking:
         chunk_estimate = max(
             2,
-            (len(content) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
+            (len(summary_source) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
         )
         console.print(
             f"📄 Long content detected (~{chunk_estimate} sections)",
@@ -217,14 +257,14 @@ def summarize_document(
         ) as progress:
             task_id = progress.add_task("Summarizing sections...", total=100)
             summary_result = summarize_content_with_chunking(
-                content,
-                content_format=helper_format,
+                summary_source,
+                content_format=analysis_format,
                 language=language_for_summary,
                 metadata={"source_filename": file_path.name},
             )
             progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
     else:
-        summary_result = summarize_content(content)
+        summary_result = summarize_content(summary_source)
 
     if summary_result is None:
         console.print("⚠️  Summarization skipped", style="yellow")
@@ -257,7 +297,7 @@ def summarize_document(
         failure_reason += f" [stage: {summary_result.stage}]"
 
     fallback_summary = generate_fallback_summary(
-        content,
+        summary_source,
         note=fallback_note or f"Fallback summary generated locally (source: {failure_reason})",
     )
     if fallback_summary:
