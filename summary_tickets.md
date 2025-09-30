@@ -126,21 +126,22 @@ Each ticket is sized at 1 story point and can land independently. Suggested exec
 This spec lives inline for now; revise `version` when fields are added or behavior changes.
 
 ### T10 — Python chunking scaffolding
-- **Goal:** Add chunk creation helpers (`create_semantic_chunks`, etc.) and skeleton `summarize_content_with_chunking` wrapper.
-- **Acceptance:** Helpers unit-tested; long inputs route through new codepath (stubbed Swift calls).
+- **Goal:** Add chunk creation helpers (`create_semantic_chunks`, etc.) and `summarize_content_with_chunking` wrapper that emits protocol v1 payloads.
+- **Details:** Build dataclasses for chunk metadata, JSON serializer aligned with `Chunked Summarization Protocol (v1)`, `strategy` heuristics, and retry bookkeeping; ensure fallback to single-pass helper remains.
+- **Acceptance:** Unit tests cover chunk splitting, payload JSON, and error mapping; `summarize_content_with_chunking` routes long inputs through new codepath (Swift calls mocked).
 
 ### T11 — Swift chunked processing
-- **Goal:** Extend `clipdrop-summarize` to accept JSON input, summarize per chunk, consolidate, and emit structured status.
-- **Acceptance:** Swift helper handles both single-string and chunked JSON inputs; builds pass.
+- **Goal:** Extend `clipdrop-summarize` to accept protocol v1 JSON, summarize per chunk, consolidate, and emit structured status responses.
+- **Acceptance:** Swift helper handles legacy single-string and new chunked inputs, populates `stage_results` / `warnings`, and ships fat binary via build scripts.
 
 ### T12 — CLI progress UX for chunking
-- **Goal:** Enhance CLI progress display for multi-stage summarization, including stage messages and percent updates.
-- **Acceptance:** Running `--summarize` on long input shows multi-stage progress and final summary append.
+- **Goal:** Enhance CLI progress display for multi-stage summarization, including stage messages sourced from Python chunk progress and helper `stage_results`.
+- **Acceptance:** Running `--summarize` on long input shows multi-stage progress, stage-aligned status text, and final summary append.
 
 ### T13 — Integration tests for chunking flow
-- **Goal:** Cover end-to-end workflow with mocked Swift responses to ensure chunked summarization behaves correctly.
-- **Acceptance:** New tests execute chunking path, verifying summary consolidation and error handling.
+- **Goal:** Cover end-to-end workflow with mocked Swift responses implementing protocol v1 to ensure chunked summarization behaves correctly.
+- **Acceptance:** New tests execute chunking path, verifying summary consolidation, error propagation (including `retryable`), and stage reporting.
 
 ### T14 — Documentation updates for chunking
-- **Goal:** Document chunked summarization behavior, limits, and user guidance in README/help text.
-- **Acceptance:** README/CLI help mention multi-stage strategy and platform requirements.
+- **Goal:** Document chunked summarization behavior, limits, protocol versioning expectations, and user guidance in README/help text.
+- **Acceptance:** README/CLI help mention multi-stage strategy, platform requirements, and highlight fallback to single-pass summarization.
