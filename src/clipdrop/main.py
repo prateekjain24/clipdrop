@@ -140,6 +140,135 @@ def _write_summary_with_body(file_path: Path, summary_markdown: str, body: str) 
     file_path.write_text(combined, encoding="utf-8")
 
 
+def _normalize_summary_language(lang: Optional[str]) -> str:
+    if not lang:
+        return "en-US"
+
+    cleaned = lang.strip()
+    if len(cleaned) <= 2:
+        mapping = {
+            "en": "en-US",
+            "es": "es-ES",
+            "fr": "fr-FR",
+            "de": "de-DE",
+            "it": "it-IT",
+            "pt": "pt-BR",
+            "ja": "ja-JP",
+            "ko": "ko-KR",
+            "zh": "zh-CN",
+        }
+        return mapping.get(cleaned.lower(), "en-US")
+
+    return cleaned
+
+
+def summarize_document(
+    *,
+    content: str,
+    file_path: Path,
+    content_format: str,
+    requested_lang: Optional[str],
+    fallback_note: Optional[str] = None,
+) -> None:
+    console.print("🤖 Generating summary...", style="dim")
+
+    is_suitable, reason = detect.is_summarizable_content(content, content_format)
+    reason_text = reason or ""
+
+    use_chunking = False
+    if not is_suitable:
+        if reason_text == detect.SINGLE_PASS_LIMIT_REASON or len(content) > 15_000:
+            use_chunking = True
+        else:
+            skip_reason = reason_text or "Content not suitable for summarization"
+            console.print(f"⚠️  Summarization skipped: {skip_reason}", style="yellow")
+            return
+    elif len(content) > 15_000:
+        use_chunking = True
+
+    helper_format = content_format.lower() if content_format else "plaintext"
+    if helper_format in {"txt", "text", "srt", "vtt"}:
+        helper_format = "plaintext"
+    elif helper_format == "md":
+        helper_format = "markdown"
+
+    language_for_summary = _normalize_summary_language(requested_lang)
+
+    summary_result = None
+
+    if use_chunking:
+        chunk_estimate = max(
+            2,
+            (len(content) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
+        )
+        console.print(
+            f"📄 Long content detected (~{chunk_estimate} sections)",
+            style="dim",
+        )
+        console.print("🔄 Using multi-stage summarization...", style="dim")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=30),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            transient=True,
+        ) as progress:
+            task_id = progress.add_task("Summarizing sections...", total=100)
+            summary_result = summarize_content_with_chunking(
+                content,
+                content_format=helper_format,
+                language=language_for_summary,
+                metadata={"source_filename": file_path.name},
+            )
+            progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
+    else:
+        summary_result = summarize_content(content)
+
+    if summary_result is None:
+        console.print("⚠️  Summarization skipped", style="yellow")
+        return
+
+    if use_chunking and summary_result.stage_results:
+        console.print("📊 Summarization stages:", style="dim")
+        for stage_info in summary_result.stage_results:
+            stage_name = stage_info.get("stage", "?")
+            status = stage_info.get("status", "pending")
+            processed = stage_info.get("processed")
+            details = f" - {stage_name}: {status}"
+            if processed is not None:
+                details += f" ({processed} chunks)"
+            console.print(details, style="dim")
+
+    if summary_result.warnings:
+        for warning in summary_result.warnings:
+            console.print(f"⚠️  {warning}", style="yellow")
+
+    if summary_result.success and summary_result.summary:
+        _write_summary_with_body(file_path, summary_result.summary, content)
+        console.print("✨ Summary added to file", style="green")
+        return
+
+    error_message = summary_result.error or "Summarization failed"
+    if summary_result.retryable:
+        error_message += " (try again shortly)"
+    if summary_result.stage:
+        error_message += f" [stage: {summary_result.stage}]"
+    console.print(f"❌ Summarization failed: {error_message}", style="red")
+
+    fallback_summary = generate_fallback_summary(
+        content,
+        note=fallback_note or "Fallback summary generated locally",
+    )
+    if fallback_summary:
+        _write_summary_with_body(file_path, fallback_summary, content)
+        console.print(
+            "⚠️ Summarizer unavailable; appended fallback summary",
+            style="yellow",
+        )
+
+
 def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:
     """
     Add chapter markers to transcript content.
@@ -218,6 +347,7 @@ def handle_audio_transcription(
     filename: Optional[str] = None,
     paranoid_flag: bool = False,
     lang: Optional[str] = None,
+    summarize: bool = False,
 ) -> None:
     """
     Handle transcription of audio from clipboard.
@@ -319,6 +449,15 @@ def handle_audio_transcription(
                 seconds = int(total_duration % 60)
                 console.print(f"[dim]Duration: {hours:02d}:{minutes:02d}:{seconds:02d}[/dim]")
 
+            if summarize:
+                summarize_document(
+                    content=content,
+                    file_path=Path(final_filename),
+                    content_format=ext.lstrip('.') or 'srt',
+                    requested_lang=lang,
+                    fallback_note="Fallback summary generated for audio transcript",
+                )
+
         except Exception as e:
             display_error(e, final_filename)
             raise typer.Exit(ExitCode.TRANSCRIPTION_ERROR)
@@ -352,7 +491,8 @@ def handle_youtube_transcript(
     paranoid_mode: Optional[ParanoidMode] = None,
     lang: Optional[str] = None,
     yes: bool = False,
-    chapters: bool = False
+    chapters: bool = False,
+    summarize: bool = False,
 ) -> None:
     """
     Handle YouTube transcript download command.
@@ -511,6 +651,15 @@ def handle_youtube_transcript(
         file_size = len(content.encode('utf-8'))
         size_str = f"{file_size:,} bytes" if file_size < 1024 else f"{file_size/1024:.1f} KB"
         console.print(f"[dim]   Format: {ext[1:].upper()} | Size: {size_str} | Language: {lang_name}[/dim]")
+
+        if summarize:
+            summarize_document(
+                content=content,
+                file_path=output_path,
+                content_format=ext.lstrip('.'),
+                requested_lang=lang,
+                fallback_note="Fallback summary generated for YouTube transcript",
+            )
 
     except YTDLPNotFoundError:
         console.print("[red]❌ yt-dlp is not installed[/red]")
@@ -696,6 +845,7 @@ def main(
             filename=filename,
             paranoid_flag=paranoid_flag,
             lang=lang,
+            summarize=summarize,
         )
 
     # Check if this is YouTube mode
@@ -708,7 +858,8 @@ def main(
             paranoid_mode=paranoid_mode,
             lang=lang,
             yes=yes,
-            chapters=chapters
+            chapters=chapters,
+            summarize=summarize,
         )
 
     # Check for audio in clipboard (with or without filename)
@@ -720,6 +871,7 @@ def main(
                 filename=filename,
                 paranoid_flag=paranoid_flag,
                 lang=lang,
+                summarize=summarize,
             )
     except (ImportError, RuntimeError):
         pass  # Not on macOS or helper not available
@@ -1159,129 +1311,13 @@ def main(
                 )
 
                 if summarize:
-                    console.print("🤖 Generating summary...", style="dim")
-
-                    is_suitable, reason = detect.is_summarizable_content(content, content_format)
-                    reason_text = reason or ""
-
-                    use_chunking = False
-                    can_summarize = True
-                    if not is_suitable:
-                        if reason_text == detect.SINGLE_PASS_LIMIT_REASON or len(content) > 15_000:
-                            use_chunking = True
-                        else:
-                            skip_reason = reason_text or "Content not suitable for summarization"
-                            console.print(
-                                f"⚠️  Summarization skipped: {skip_reason}",
-                                style="yellow",
-                            )
-                            can_summarize = False
-                    elif len(content) > 15_000:
-                        use_chunking = True
-
-                    if can_summarize:
-                        helper_format = content_format.lower() if content_format else "plaintext"
-                        if helper_format in {"txt", "text"}:
-                            helper_format = "plaintext"
-                        elif helper_format == "md":
-                            helper_format = "markdown"
-
-                        language_for_summary = lang or "en-US"
-                        summary_result = None
-
-                        if use_chunking:
-                            chunk_estimate = max(
-                                2,
-                                (len(content) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
-                            )
-                            console.print(
-                                f"📄 Long content detected (~{chunk_estimate} sections)",
-                                style="dim",
-                            )
-                            console.print("🔄 Using multi-stage summarization...", style="dim")
-
-                            with Progress(
-                                SpinnerColumn(),
-                                TextColumn("[progress.description]{task.description}"),
-                                BarColumn(bar_width=30),
-                                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                                TimeElapsedColumn(),
-                                transient=True,
-                            ) as progress:
-                                task_id = progress.add_task("Summarizing sections...", total=100)
-                                summary_result = summarize_content_with_chunking(
-                                    content,
-                                    content_format=helper_format,
-                                    language=language_for_summary,
-                                    metadata={"source_filename": file_path.name},
-                                )
-                                progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
-                        else:
-                            with Progress(
-                                SpinnerColumn(),
-                                TextColumn("[progress.description]{task.description}"),
-                                transient=True,
-                            ) as progress:
-                                task_id = progress.add_task("Generating summary...", total=None)
-                                summary_result = summarize_content(content)
-                                progress.update(task_id, completed=1)
-
-                        assert summary_result is not None
-
-                        if use_chunking and summary_result.stage_results:
-                            console.print("📊 Summarization stages:", style="dim")
-                            for stage_info in summary_result.stage_results:
-                                stage_name = stage_info.get("stage", "?")
-                                status = stage_info.get("status", "pending")
-                                processed = stage_info.get("processed")
-                                details = f" - {stage_name}: {status}"
-                                if processed is not None:
-                                    details += f" ({processed} chunks)"
-                                console.print(details, style="dim")
-
-                        body_text = file_path.read_text(encoding="utf-8")
-
-                        if summary_result.warnings:
-                            for warning in summary_result.warnings:
-                                console.print(f"⚠️  {warning}", style="yellow")
-
-                        if summary_result.success and summary_result.summary:
-                            try:
-                                _write_summary_with_body(file_path, summary_result.summary, body_text)
-                                console.print("✨ Summary added to file", style="green")
-                            except OSError as exc:
-                                console.print(
-                                    f"❌ Failed to append summary: {exc}",
-                                    style="red",
-                                )
-                        else:
-                            error_message = summary_result.error or "Summarization failed"
-                            if summary_result.retryable:
-                                error_message += " (try again shortly)"
-                            if summary_result.stage:
-                                error_message += f" [stage: {summary_result.stage}]"
-
-                            console.print(
-                                f"❌ Summarization failed: {error_message}",
-                                style="red",
-                            )
-
-                            fallback_summary = generate_fallback_summary(
-                                content,
-                                note="Fallback summary generated locally",
-                            )
-                            if fallback_summary:
-                                try:
-                                    _write_summary_with_body(file_path, fallback_summary, body_text)
-                                    console.print(
-                                        "⚠️ Summarizer unavailable; appended fallback summary",
-                                        style="yellow",
-                                    )
-                                except OSError as exc:
-                                    console.print(
-                                        f"❌ Failed to append summary: {exc}",
-                                        style="red",
-                                    )
+                    summarize_document(
+                        content=content,
+                        file_path=file_path,
+                        content_format=content_format,
+                        requested_lang=lang,
+                        fallback_note="Fallback summary generated locally",
+                    )
 
     except typer.Abort:
         # User cancelled operation

@@ -5,7 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from clipdrop import detect
-from clipdrop.main import app
+from clipdrop.main import app, handle_audio_transcription
 from clipdrop.macos_ai import (
     SummaryResult,
     SummarizationNotAvailableError,
@@ -322,3 +322,74 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         assert "### Key Takeaways" in saved
         _, _, body = saved.partition("\n---\n\n")
         assert body.strip().startswith("Paragraph")
+
+
+def test_youtube_summarize_adds_structured_summary(monkeypatch, tmp_path):
+    summary_text = (
+        "**Overall:** Video recap\n"
+        "### Key Takeaways\n- Highlight\n"
+        "### Action Items\n- None\n"
+        "### Questions\n- None"
+    )
+
+    monkeypatch.setattr("clipdrop.clipboard.get_text", lambda: "https://youtu.be/example")
+    monkeypatch.setattr("clipdrop.main.validate_youtube_url", lambda _url: True)
+    monkeypatch.setattr("clipdrop.main.extract_video_id", lambda _url: "abc123")
+    monkeypatch.setattr("clipdrop.main.get_video_info", lambda _url: {"title": "Test Video"})
+    monkeypatch.setattr("clipdrop.main.list_captions", lambda _url: [("en", "English", False)])
+    monkeypatch.setattr("clipdrop.main.select_caption_track", lambda captions, _lang: captions[0])
+    monkeypatch.setattr("clipdrop.youtube.sanitize_filename", lambda title: "Test Video")
+
+    def fake_download_vtt(_url, _lang_code):
+        vtt_path = tmp_path / "captions.vtt"
+        vtt_path.write_text("WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHello world\n", encoding="utf-8")
+        return str(vtt_path)
+
+    monkeypatch.setattr("clipdrop.main.download_vtt", fake_download_vtt)
+    monkeypatch.setattr("clipdrop.main.vtt_to_srt", lambda _vtt: "1\n00:00:00,000 --> 00:00:02,000\nHello world\n")
+    monkeypatch.setattr("clipdrop.main.summarize_content", lambda _content: SummaryResult(success=True, summary=summary_text))
+    monkeypatch.setattr("clipdrop.main.summarize_content_with_chunking", lambda *_, **__: pytest.fail("chunking not expected"))
+    monkeypatch.setattr("clipdrop.detect.is_summarizable_content", lambda _content, _format: (True, ""))
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["--youtube", "--summarize"])
+        assert result.exit_code == 0
+        saved = Path("Test Video.srt").read_text(encoding="utf-8")
+        assert saved.startswith("**Overall:**")
+        assert "### Key Takeaways" in saved
+        _, _, body = saved.partition("\n---\n\n")
+        assert "Hello world" in body
+
+
+def test_audio_transcription_summarize_adds_summary(monkeypatch, tmp_path):
+    segments = [{"start": 0.0, "end": 1.2, "text": "Hello world"}]
+
+    def fake_stream(lang=None, progress_callback=None):  # noqa: ARG001
+        for idx, segment in enumerate(segments, 1):
+            if callable(progress_callback):
+                progress_callback(segment, idx)
+            yield segment
+
+    monkeypatch.setattr("clipdrop.macos_ai.transcribe_from_clipboard_stream", fake_stream)
+    monkeypatch.setattr("clipdrop.main.to_srt", lambda _segments: "1\n00:00:00,000 --> 00:00:01,200\nHello world\n")
+    summary_text = (
+        "**Overall:** Audio recap\n"
+        "### Key Takeaways\n- Phrases captured\n"
+        "### Action Items\n- None\n"
+        "### Questions\n- None"
+    )
+
+    monkeypatch.setattr("clipdrop.main.summarize_content", lambda _content: SummaryResult(success=True, summary=summary_text))
+    monkeypatch.setattr("clipdrop.main.summarize_content_with_chunking", lambda *_, **__: pytest.fail("chunking not expected"))
+    monkeypatch.setattr("clipdrop.detect.is_summarizable_content", lambda _content, _format: (True, ""))
+    monkeypatch.setattr("clipdrop.main.console.print", lambda *args, **kwargs: None)
+
+    monkeypatch.chdir(tmp_path)
+
+    handle_audio_transcription(filename="audio.srt", summarize=True)
+
+    saved = Path("audio.srt").read_text(encoding="utf-8")
+    assert saved.startswith("**Overall:**")
+    assert "### Key Takeaways" in saved
+    _, _, body = saved.partition("\n---\n\n")
+    assert "Hello world" in body
