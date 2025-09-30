@@ -67,7 +67,17 @@ clipdrop              # → transcript_20240323_143022.srt
 clipdrop meeting.txt  # → meeting notes as plain text
 ```
 
-### 4. 🎥 **YouTube Transcripts**
+### 4. 🤖 **On-Device Summaries** (macOS 26.0+)
+Turn long clipboard text into concise takeaways without leaving your machine:
+```bash
+# Save article and append summary
+clipdrop research-notes.md --summarize
+
+# Skip when content is too short or non-text
+clipdrop notes.txt --summarize
+```
+
+### 5. 🎥 **YouTube Transcripts**
 Research videos efficiently:
 ```bash
 # Copy YouTube URL, then:
@@ -75,7 +85,7 @@ clipdrop -yt                    # Download transcript
 clipdrop -yt lecture.md --lang es  # Spanish transcript
 ```
 
-### 5. 🔒 **Secret Scanner**
+### 6. 🔒 **Secret Scanner**
 Never accidentally save credentials:
 ```bash
 clipdrop config.env -s           # Scan before saving
@@ -127,6 +137,9 @@ clipdrop -yt lecture.md
 
 # Build research document
 clipdrop research.md -a
+
+# Append AI summary (macOS 26.0+)
+clipdrop research.md --summarize
 ```
 </details>
 

@@ -5,6 +5,22 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2025-09-30
+
+### ✨ Summaries on macOS 26.0+
+
+### Added
+- On-device summarization helper powered by Apple Intelligence foundation models
+- `--summarize` / `-S` CLI flag to append AI summaries to saved text
+- Eligibility checks for content length, format, and platform availability
+- Build automation for `clipdrop-summarize` universal binary and Python bridge tests
+
+### Changed
+- README/usage docs now highlight summarization workflows and requirements
+- Version bumped to 1.6.0
+
+---
+
 ## [1.5.3] - 2025-09-23
 
 ### 🐛 Bug Fixes

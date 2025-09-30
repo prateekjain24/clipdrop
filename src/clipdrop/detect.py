@@ -26,9 +26,30 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
         return False, "Content too long for single-pass summarization"
 
     # Heuristic filter to avoid passing obvious code snippets.
-    code_indicators = ("def ", "class ", "function ", "#!/", "import ", "from ")
     lowered = content.lower()
-    if any(indicator in lowered for indicator in code_indicators):
+    code_keywords = (
+        "def ",
+        " class ",
+        "function ",
+        "fn ",
+        "#!/",
+        "import ",
+        "const ",
+        " var ",
+        "public ",
+        "private ",
+    )
+    code_hits = sum(lowered.count(keyword) for keyword in code_keywords)
+    fenced_code = "```" in content or "</code>" in lowered
+    indented_code = any(
+        line.startswith(("    ", "\t")) and any(sym in line for sym in ("(", ")", "=", ":"))
+        for line in content.splitlines()
+    )
+    structural_tokens = any(token in content for token in ("{", "};", "=>", "#include"))
+
+    if fenced_code or code_hits >= 3 or (
+        code_hits >= 2 and (indented_code or structural_tokens)
+    ):
         return False, "Content appears to be code"
 
     if normalized_format in {"md", "markdown", "txt", "text", "html"}:

@@ -51,6 +51,7 @@ clipdrop log.txt            # Save as text file
 |------|-------------|---------|
 | `--lang CODE` | Language for transcripts | `clipdrop -yt --lang es` |
 | `--chapters` | Include YouTube chapter markers | `clipdrop -yt video.md --chapters` |
+| `--summarize` | `-S` | Append AI summary after saving (macOS 26.0+) | `clipdrop notes.md --summarize` |
 | `--version` | Show version | `clipdrop --version` |
 | `--help` | Show help | `clipdrop --help` |
 
@@ -157,6 +158,19 @@ clipdrop output.txt -f
 
 # Accept all security prompts
 clipdrop data.json --scan -y
+
+### 9. AI Summaries (macOS 26.0+)
+Generate a quick recap of long clipboard text:
+```bash
+# Save and summarize in one step
+clipdrop article.md --summarize
+
+# Works with existing files too
+clipdrop notes.txt --summarize
+
+# Summaries are skipped for short or non-text content
+clipdrop changelog.txt --summarize
+```
 
 # Combine flags for full automation
 clipdrop log.txt -a -f -y
