@@ -239,7 +239,7 @@ def summarize_document(
     if use_chunking:
         total_length = len(summary_source)
         desired_chunks = max(6, min(20, total_length // 8000 + 1))
-        chunk_char_limit = max(4000, min(DEFAULT_MAX_CHUNK_CHARS, total_length // desired_chunks))
+        chunk_char_limit = max(3000, min(8000, max(1, total_length // desired_chunks)))
 
         chunk_estimate = max(2, total_length // chunk_char_limit + 1)
         console.print(
@@ -247,6 +247,8 @@ def summarize_document(
             style="dim",
         )
         console.print("🔄 Using multi-stage summarization...", style="dim")
+
+        chunk_timeout = max(60, min(240, 30 + chunk_estimate * 8))
 
         with Progress(
             SpinnerColumn(),
@@ -263,6 +265,7 @@ def summarize_document(
                 language=language_for_summary,
                 metadata={"source_filename": file_path.name},
                 max_chunk_chars=chunk_char_limit,
+                timeout=chunk_timeout,
             )
             progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
     else:
