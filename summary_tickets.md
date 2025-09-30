@@ -48,6 +48,83 @@ Each ticket is sized at 1 story point and can land independently. Suggested exec
 - **Goal:** Specify JSON schema & CLI contract for chunked summarization across Python↔Swift.
 - **Acceptance:** Shared doc (or inline spec) describing request/response format, stages, and errors.
 
+#### Chunked Summarization Protocol (v1)
+- **Trigger:** Python CLI switches to chunked mode when `len(content) > 15000` or when heuristic score indicates hierarchical summarization is required.
+- **Invocation:** `summarize_content_with_chunking` pipes a UTF-8 JSON document to `clipdrop-summarize` via stdin and expects a single-line JSON response on stdout. Exit code `0` indicates the helper ran; response `success` determines logical outcome.
+
+##### Request Payload
+```json
+{
+  "version": "1.0",
+  "mode": "chunked",
+  "content_format": "markdown|plaintext|html",
+  "origin": "clipdrop-cli",
+  "instructions": "optional override for LLM directives",
+  "chunks": [
+    {
+      "id": "uuid",
+      "index": 0,
+      "text": "...",
+      "char_length": 7800,
+      "token_estimate": 2600,
+      "metadata": {
+        "source_filename": "research.md",
+        "section_title": "Findings"
+      }
+    }
+  ],
+  "strategy": {
+    "type": "hierarchical",
+    "max_chunk_chars": 12000,
+    "target_summary_sentences": 4,
+    "language": "en-US"
+  }
+}
+```
+- `chunks` are ordered; helper may assume incremental context. `id` is opaque but stable for retries.
+- `token_estimate` allows Swift helper to choose batching; Python provides coarse `len(chunk) / 3` by default.
+- `strategy.language` mirrors CLI `--lang`; omitted entries default to English.
+
+##### Response Payload
+```json
+{
+  "version": "1.0",
+  "mode": "chunked",
+  "success": true,
+  "summary": "Consolidated 3-paragraph recap...",
+  "stage_results": [
+    {"stage": "precheck", "status": "ok"},
+    {"stage": "chunk_summaries", "status": "ok", "processed": 4},
+    {"stage": "aggregation", "status": "ok"}
+  ],
+  "elapsed_ms": 18342,
+  "warnings": []
+}
+```
+- `summary` is omitted when `success` is `false`; `error` and `retryable` fields become mandatory in that case.
+- `stage_results` items follow enum set `{precheck, chunk_summaries, aggregation, refinement}` with optional `progress` (0–100).
+- Helper should surface structured errors using:
+  ```json
+  {
+    "success": false,
+    "error": "Language model unavailable",
+    "retryable": false,
+    "stage": "precheck"
+  }
+  ```
+
+##### CLI Contract
+- Python interprets non-zero helper exit codes as transport failure and maps to `SummarizationResult(error=...)`.
+- On chunk-level retries, Python may resend a subset of `chunks` with the same `version` but different `strategy.retry_attempt` counter; Swift should treat unknown fields as noop.
+- Progress UI updates come from Python estimating completion based on chunk count; future streaming hooks can piggy-back on `stage_results` but are not required for v1.
+
+##### Validation Rules
+- Reject input when `chunks` is empty, any `text` exceeds `max_chunk_chars`, or `token_estimate` is missing.
+- Return `retryable=true` for transient issues (e.g., `modelNotReady`, `timeout`); otherwise false.
+- Preserve backward compatibility by continuing to accept legacy single-string input when `mode` is absent.
+
+This spec lives inline for now; revise `version` when fields are added or behavior changes.
+
 ### T10 — Python chunking scaffolding
 - **Goal:** Add chunk creation helpers (`create_semantic_chunks`, etc.) and skeleton `summarize_content_with_chunking` wrapper.
 - **Acceptance:** Helpers unit-tested; long inputs route through new codepath (stubbed Swift calls).
