@@ -6,6 +6,43 @@ import re
 from pathlib import Path
 
 
+def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, str]:
+    """Determine whether clipboard content is appropriate for on-device summarization."""
+
+    if not content.strip():
+        return False, "Content is empty"
+
+    normalized_format = detected_format.lower() if detected_format else ""
+
+    # Skip formats that are unlikely to benefit from prose summarization.
+    if normalized_format in {"json", "csv", "yaml", "code"}:
+        return False, f"Format '{detected_format}' not suitable for summarization"
+
+    word_count = len(content.split())
+    if word_count < 50:
+        return False, "Content too short for meaningful summarization"
+
+    if word_count > 3_000:
+        return False, "Content too long for single-pass summarization"
+
+    # Heuristic filter to avoid passing obvious code snippets.
+    code_indicators = ("def ", "class ", "function ", "#!/", "import ", "from ")
+    lowered = content.lower()
+    if any(indicator in lowered for indicator in code_indicators):
+        return False, "Content appears to be code"
+
+    if normalized_format in {"md", "markdown", "txt", "text", "html"}:
+        return True, ""
+
+    printable = sum(char.isprintable() for char in content)
+    printable_ratio = printable / len(content)
+    if printable_ratio >= 0.8:
+        return True, ""
+
+    # Future: fall back to multi-stage chunking for very long but primarily textual content.
+    return False, "Content not suitable for summarization"
+
+
 def is_json(content: str) -> bool:
     """
     Check if content is valid JSON.

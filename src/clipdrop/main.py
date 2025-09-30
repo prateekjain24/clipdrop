@@ -5,11 +5,13 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
 from clipdrop import clipboard, detect, files, images, pdf
+from clipdrop.macos_ai import summarize_content
 from clipdrop.error_helpers import display_error, show_success_message
 from clipdrop.paranoid import (
     ParanoidMode,
@@ -504,6 +506,12 @@ def main(
         help="Include YouTube chapter markers in transcript. "
              "Adds timestamps and chapter titles as headers (Markdown) "
              "or comments (SRT/VTT/TXT)"
+    ),
+    summarize: bool = typer.Option(
+        False,
+        "--summarize",
+        "-S",
+        help="Generate an on-device summary and append it to saved text",
     ),
     youtube: bool = typer.Option(
         False,
@@ -1058,6 +1066,47 @@ def main(
                     size_str,
                     {'format_detected': content_format}
                 )
+
+                if summarize:
+                    console.print("🤖 Generating summary...", style="dim")
+
+                    is_suitable, reason = detect.is_summarizable_content(content, content_format)
+                    if not is_suitable:
+                        # Future enhancement: fall back to multi-stage chunking for very long input.
+                        reason_text = reason or "Content not suitable for summarization"
+                        console.print(
+                            f"⚠️  Summarization skipped: {reason_text}",
+                            style="yellow",
+                        )
+                    else:
+                        with Progress(
+                            SpinnerColumn(),
+                            TextColumn("[progress.description]{task.description}"),
+                            transient=True,
+                        ) as progress:
+                            task_id = progress.add_task("Generating summary...", total=None)
+                            summary_result = summarize_content(content)
+                            progress.update(task_id, completed=1)
+
+                        if summary_result.success and summary_result.summary:
+                            summary_section = (
+                                "\n\n---\n\n## Summary\n"
+                                f"{summary_result.summary}\n"
+                            )
+                            try:
+                                with open(file_path, "a", encoding="utf-8") as handle:
+                                    handle.write(summary_section)
+                                console.print("✨ Summary added to file", style="green")
+                            except OSError as exc:
+                                console.print(
+                                    f"❌ Failed to append summary: {exc}",
+                                    style="red",
+                                )
+                        else:
+                            console.print(
+                                f"❌ Summarization failed: {summary_result.error}",
+                                style="red",
+                            )
 
     except typer.Abort:
         # User cancelled operation
