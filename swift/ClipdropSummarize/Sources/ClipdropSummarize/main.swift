@@ -91,7 +91,7 @@ Ensure the final output is clean Markdown, avoids repetition, and does not menti
                 options: GenerationOptions(
                     sampling: nil,
                     temperature: 0.3,
-                    maximumResponseTokens: 320
+                    maximumResponseTokens: 500
                 ),
                 stage: nil
             )
