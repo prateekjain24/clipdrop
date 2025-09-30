@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SWIFT_DIR="swift/TranscribeClipboard"
-OUT="src/clipdrop/bin"
-BINARY="clipdrop-transcribe-clipboard"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd -P)"
+OUT_DIR="$ROOT_DIR/src/clipdrop/bin"
 
-mkdir -p "$OUT"
-pushd "$SWIFT_DIR" >/dev/null
+declare -a HELPERS=(
+  "clipdrop-transcribe-clipboard:swift/TranscribeClipboard"
+  "clipdrop-summarize:swift/ClipdropSummarize"
+)
 
-swift build -c release --arch arm64
-swift build -c release --arch x86_64
+mkdir -p "$OUT_DIR"
 
-lipo -create \
-  .build/arm64-apple-macosx/release/$BINARY \
-  .build/x86_64-apple-macosx/release/$BINARY \
-  -output "../../$OUT/$BINARY"
+for entry in "${HELPERS[@]}"; do
+  IFS=":" read -r binary rel_dir <<<"$entry"
+  swift_dir="$ROOT_DIR/$rel_dir"
 
-chmod +x "../../$OUT/$BINARY"
-popd >/dev/null
+  pushd "$swift_dir" >/dev/null
+
+  swift build -c release --arch arm64
+  swift build -c release --arch x86_64
+
+  lipo -create \
+    .build/arm64-apple-macosx/release/$binary \
+    .build/x86_64-apple-macosx/release/$binary \
+    -output "$OUT_DIR/$binary"
+
+  chmod +x "$OUT_DIR/$binary"
+
+  popd >/dev/null
+done
