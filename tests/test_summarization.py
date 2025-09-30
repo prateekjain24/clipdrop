@@ -6,7 +6,11 @@ from typer.testing import CliRunner
 
 from clipdrop import detect
 from clipdrop.main import app
-from clipdrop.macos_ai import SummaryResult, SummarizationNotAvailableError, summarize_content
+from clipdrop.macos_ai import (
+    SummaryResult,
+    SummarizationNotAvailableError,
+    summarize_content,
+)
 
 runner = CliRunner()
 
@@ -157,3 +161,46 @@ def test_cli_summarize_handles_failure(monkeypatch):
 
         saved = Path("report.txt").read_text(encoding="utf-8")
         assert "## Summary" not in saved
+
+
+def test_cli_summarize_long_content_uses_chunking(monkeypatch):
+    from clipdrop import main as clipdrop_main
+
+    long_content = ("paragraph " * 4001).strip()
+    summary_text = "Chunked summary"
+
+    monkeypatch.setattr(
+        "clipdrop.main.summarize_content",
+        lambda *_args, **_kwargs: pytest.fail("Should not use single-pass summarizer"),
+    )
+
+    captured = {}
+
+    def fake_chunker(content: str, **kwargs):
+        captured["kwargs"] = kwargs
+        return SummaryResult(
+            success=True,
+            summary=summary_text,
+            stage_results=[{"stage": "chunk_summaries", "status": "ok", "processed": 4}],
+        )
+
+    monkeypatch.setattr("clipdrop.main.summarize_content_with_chunking", fake_chunker)
+
+    monkeypatch.setattr(clipdrop_main.clipboard, "get_text", lambda: long_content)
+    monkeypatch.setattr(
+        clipdrop_main.clipboard,
+        "get_content_preview",
+        lambda max_chars=200: long_content[:max_chars],
+    )
+
+    with runner.isolated_filesystem():
+        result = runner.invoke(app, ["scroll", "--summarize"])
+        assert result.exit_code == 0
+
+        saved = Path("scroll.txt").read_text(encoding="utf-8")
+        assert summary_text in saved
+
+        kwargs = captured["kwargs"]
+        assert kwargs["content_format"] == "plaintext"
+        assert kwargs["metadata"]["source_filename"] == "scroll.txt"
+        assert kwargs["language"] == "en-US"

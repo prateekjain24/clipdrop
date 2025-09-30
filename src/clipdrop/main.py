@@ -5,13 +5,20 @@ from typing import Optional
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
 from clipdrop import clipboard, detect, files, images, pdf
-from clipdrop.macos_ai import summarize_content
+from clipdrop.chunking import DEFAULT_MAX_CHUNK_CHARS
+from clipdrop.macos_ai import summarize_content, summarize_content_with_chunking
 from clipdrop.error_helpers import display_error, show_success_message
 from clipdrop.paranoid import (
     ParanoidMode,
@@ -1071,22 +1078,79 @@ def main(
                     console.print("🤖 Generating summary...", style="dim")
 
                     is_suitable, reason = detect.is_summarizable_content(content, content_format)
+                    reason_text = reason or ""
+
+                    use_chunking = False
+                    can_summarize = True
                     if not is_suitable:
-                        # Future enhancement: fall back to multi-stage chunking for very long input.
-                        reason_text = reason or "Content not suitable for summarization"
-                        console.print(
-                            f"⚠️  Summarization skipped: {reason_text}",
-                            style="yellow",
-                        )
-                    else:
-                        with Progress(
-                            SpinnerColumn(),
-                            TextColumn("[progress.description]{task.description}"),
-                            transient=True,
-                        ) as progress:
-                            task_id = progress.add_task("Generating summary...", total=None)
-                            summary_result = summarize_content(content)
-                            progress.update(task_id, completed=1)
+                        if reason_text == detect.SINGLE_PASS_LIMIT_REASON or len(content) > 15_000:
+                            use_chunking = True
+                        else:
+                            skip_reason = reason_text or "Content not suitable for summarization"
+                            console.print(
+                                f"⚠️  Summarization skipped: {skip_reason}",
+                                style="yellow",
+                            )
+                            can_summarize = False
+                    elif len(content) > 15_000:
+                        use_chunking = True
+
+                    if can_summarize:
+                        helper_format = content_format.lower() if content_format else "plaintext"
+                        if helper_format in {"txt", "text"}:
+                            helper_format = "plaintext"
+                        elif helper_format == "md":
+                            helper_format = "markdown"
+
+                        language_for_summary = lang or "en-US"
+
+                        if use_chunking:
+                            chunk_estimate = max(
+                                2,
+                                (len(content) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
+                            )
+                            console.print(
+                                f"📄 Long content detected (~{chunk_estimate} sections)",
+                                style="dim",
+                            )
+                            console.print("🔄 Using multi-stage summarization...", style="dim")
+
+                            with Progress(
+                                SpinnerColumn(),
+                                TextColumn("[progress.description]{task.description}"),
+                                BarColumn(bar_width=30),
+                                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                                TimeElapsedColumn(),
+                                transient=True,
+                            ) as progress:
+                                task_id = progress.add_task("Processing content...", total=100)
+                                summary_result = summarize_content_with_chunking(
+                                    content,
+                                    content_format=helper_format,
+                                    language=language_for_summary,
+                                    metadata={"source_filename": file_path.name},
+                                )
+                                progress.update(task_id, completed=100, description="Finalizing summary...")
+                        else:
+                            with Progress(
+                                SpinnerColumn(),
+                                TextColumn("[progress.description]{task.description}"),
+                                transient=True,
+                            ) as progress:
+                                task_id = progress.add_task("Generating summary...", total=None)
+                                summary_result = summarize_content(content)
+                                progress.update(task_id, completed=1)
+
+                        if use_chunking and summary_result.stage_results:
+                            console.print("📊 Summarization stages:", style="dim")
+                            for stage_info in summary_result.stage_results:
+                                stage_name = stage_info.get("stage", "?")
+                                status = stage_info.get("status", "pending")
+                                processed = stage_info.get("processed")
+                                details = f" - {stage_name}: {status}"
+                                if processed is not None:
+                                    details += f" ({processed} chunks)"
+                                console.print(details, style="dim")
 
                         if summary_result.success and summary_result.summary:
                             summary_section = (
@@ -1103,8 +1167,13 @@ def main(
                                     style="red",
                                 )
                         else:
+                            error_message = summary_result.error or "Summarization failed"
+                            if summary_result.retryable:
+                                error_message += " (try again shortly)"
+                            if summary_result.stage:
+                                error_message += f" [stage: {summary_result.stage}]"
                             console.print(
-                                f"❌ Summarization failed: {summary_result.error}",
+                                f"❌ Summarization failed: {error_message}",
                                 style="red",
                             )
 

@@ -6,6 +6,9 @@ import re
 from pathlib import Path
 
 
+SINGLE_PASS_LIMIT_REASON = "Content too long for single-pass summarization"
+
+
 def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, str]:
     """Determine whether clipboard content is appropriate for on-device summarization."""
 
@@ -23,7 +26,7 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
         return False, "Content too short for meaningful summarization"
 
     if word_count > 3_000:
-        return False, "Content too long for single-pass summarization"
+        return False, SINGLE_PASS_LIMIT_REASON
 
     # Heuristic filter to avoid passing obvious code snippets.
     lowered = content.lower()
