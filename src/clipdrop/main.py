@@ -237,10 +237,11 @@ def summarize_document(
     summary_result = None
 
     if use_chunking:
-        chunk_estimate = max(
-            2,
-            (len(summary_source) + DEFAULT_MAX_CHUNK_CHARS - 1) // DEFAULT_MAX_CHUNK_CHARS,
-        )
+        total_length = len(summary_source)
+        desired_chunks = max(6, min(20, total_length // 8000 + 1))
+        chunk_char_limit = max(4000, min(DEFAULT_MAX_CHUNK_CHARS, total_length // desired_chunks))
+
+        chunk_estimate = max(2, total_length // chunk_char_limit + 1)
         console.print(
             f"📄 Long content detected (~{chunk_estimate} sections)",
             style="dim",
@@ -261,6 +262,7 @@ def summarize_document(
                 content_format=analysis_format,
                 language=language_for_summary,
                 metadata={"source_filename": file_path.name},
+                max_chunk_chars=chunk_char_limit,
             )
             progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
     else:
