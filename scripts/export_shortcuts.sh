@@ -6,7 +6,8 @@ if ! command -v shortcuts >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! shortcuts --help | grep -qE "\\bexport\\b"; then
+HELP_OUTPUT=$(shortcuts export --help 2>&1 || true)
+if ! grep -q "USAGE: shortcuts export" <<<"$HELP_OUTPUT"; then
   cat >&2 <<'MSG'
 This build of the Shortcuts CLI does not expose the `shortcuts export` subcommand.
 Update to macOS 26 with the latest Shortcuts app, then rerun.

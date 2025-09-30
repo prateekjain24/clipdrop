@@ -41,3 +41,29 @@ Each ticket is sized at 1 story point and can land independently. Suggested exec
 - **Goal:** Update CLI help, README, and changelog to advertise summarization feature.
 - **Details:** Document platform requirements, fallback behavior, and usage examples; mention new build step if applicable.
 - **Acceptance:** Docs render correctly; version notes prepared for eventual release.
+
+## Future – Advanced Summarization (Chunking)
+
+### T9 — Define chunking protocol
+- **Goal:** Specify JSON schema & CLI contract for chunked summarization across Python↔Swift.
+- **Acceptance:** Shared doc (or inline spec) describing request/response format, stages, and errors.
+
+### T10 — Python chunking scaffolding
+- **Goal:** Add chunk creation helpers (`create_semantic_chunks`, etc.) and skeleton `summarize_content_with_chunking` wrapper.
+- **Acceptance:** Helpers unit-tested; long inputs route through new codepath (stubbed Swift calls).
+
+### T11 — Swift chunked processing
+- **Goal:** Extend `clipdrop-summarize` to accept JSON input, summarize per chunk, consolidate, and emit structured status.
+- **Acceptance:** Swift helper handles both single-string and chunked JSON inputs; builds pass.
+
+### T12 — CLI progress UX for chunking
+- **Goal:** Enhance CLI progress display for multi-stage summarization, including stage messages and percent updates.
+- **Acceptance:** Running `--summarize` on long input shows multi-stage progress and final summary append.
+
+### T13 — Integration tests for chunking flow
+- **Goal:** Cover end-to-end workflow with mocked Swift responses to ensure chunked summarization behaves correctly.
+- **Acceptance:** New tests execute chunking path, verifying summary consolidation and error handling.
+
+### T14 — Documentation updates for chunking
+- **Goal:** Document chunked summarization behavior, limits, and user guidance in README/help text.
+- **Acceptance:** README/CLI help mention multi-stage strategy and platform requirements.
