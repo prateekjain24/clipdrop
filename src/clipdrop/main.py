@@ -57,24 +57,87 @@ class ExitCode:
 console = Console()
 
 
-def generate_fallback_summary(content: str, max_sentences: int = 3) -> str:
-    """Generate a basic extractive summary by taking the first few sentences."""
-
-    text = content.strip()
-    if not text:
-        return ""
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences using punctuation heuristics."""
 
     sentences = [
         sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        for sentence in re.split(r"(?<=[.!?])\s+", text.strip())
         if sentence.strip()
     ]
+    if sentences:
+        return sentences
+    return [text.strip()] if text.strip() else []
 
+
+def _bullet_list(items: list[str]) -> str:
+    return "\n".join(f"- {item}" for item in items[:3]) if items else "- None"
+
+
+def generate_fallback_summary(content: str, note: str | None = None) -> str:
+    """Generate a structured Markdown fallback summary."""
+
+    sentences = _split_sentences(content)
     if not sentences:
         return ""
 
-    selected = sentences[:max_sentences]
-    return " ".join(selected)
+    overall = sentences[0]
+    remaining = sentences[1:]
+
+    questions = [sentence for sentence in remaining if "?" in sentence][:3]
+    remaining = [sentence for sentence in remaining if sentence not in questions]
+
+    action_keywords = [
+        " should ",
+        " need to ",
+        " must ",
+        " will ",
+        " plan to ",
+        " ensure ",
+        " follow up",
+        " schedule ",
+        " consider ",
+        " review ",
+    ]
+
+    actions: list[str] = []
+    for sentence in remaining:
+        lowered = f" {sentence.lower()} "
+        if any(keyword in lowered for keyword in action_keywords):
+            actions.append(sentence)
+        if len(actions) == 3:
+            break
+    remaining = [sentence for sentence in remaining if sentence not in actions]
+
+    takeaways = remaining[:3]
+
+    note_line = f"> _{note}_\n\n" if note else ""
+
+    return (
+        f"{note_line}**Overall:** {overall}\n"
+        f"### Key Takeaways\n{_bullet_list(takeaways)}\n"
+        f"### Action Items\n{_bullet_list(actions)}\n"
+        f"### Questions\n{_bullet_list(questions)}"
+    )
+
+
+def _write_summary_with_body(file_path: Path, summary_markdown: str, body: str) -> None:
+    """Write summary at top of file with divider and original body."""
+
+    summary = summary_markdown.strip()
+    existing = body
+
+    # Remove any existing summary block at the top separated by ---
+    stripped = existing.lstrip()
+    if stripped.startswith("**Overall:**") or stripped.startswith("## Summary"):
+        parts = existing.split("\n---\n", 1)
+        if len(parts) == 2:
+            existing = parts[1].lstrip("\n")
+        else:
+            existing = ""
+
+    combined = f"{summary}\n\n---\n\n{existing.lstrip()}".rstrip() + "\n"
+    file_path.write_text(combined, encoding="utf-8")
 
 
 def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:
@@ -1145,14 +1208,14 @@ def main(
                                 TimeElapsedColumn(),
                                 transient=True,
                             ) as progress:
-                                task_id = progress.add_task("Processing content...", total=100)
+                                task_id = progress.add_task("Summarizing sections...", total=100)
                                 summary_result = summarize_content_with_chunking(
                                     content,
                                     content_format=helper_format,
                                     language=language_for_summary,
                                     metadata={"source_filename": file_path.name},
                                 )
-                                progress.update(task_id, completed=100, description="Finalizing summary...")
+                                progress.update(task_id, completed=100, description="Synthesizing final takeaways...")
                         else:
                             with Progress(
                                 SpinnerColumn(),
@@ -1176,14 +1239,15 @@ def main(
                                     details += f" ({processed} chunks)"
                                 console.print(details, style="dim")
 
+                        body_text = file_path.read_text(encoding="utf-8")
+
+                        if summary_result.warnings:
+                            for warning in summary_result.warnings:
+                                console.print(f"⚠️  {warning}", style="yellow")
+
                         if summary_result.success and summary_result.summary:
-                            summary_section = (
-                                "\n\n---\n\n## Summary\n"
-                                f"{summary_result.summary}\n"
-                            )
                             try:
-                                with open(file_path, "a", encoding="utf-8") as handle:
-                                    handle.write(summary_section)
+                                _write_summary_with_body(file_path, summary_result.summary, body_text)
                                 console.print("✨ Summary added to file", style="green")
                             except OSError as exc:
                                 console.print(
@@ -1202,17 +1266,15 @@ def main(
                                 style="red",
                             )
 
-                            fallback_summary = generate_fallback_summary(content)
+                            fallback_summary = generate_fallback_summary(
+                                content,
+                                note="Fallback summary generated locally",
+                            )
                             if fallback_summary:
-                                summary_section = (
-                                    "\n\n---\n\n## Summary (Fallback)\n"
-                                    f"{fallback_summary}\n"
-                                )
                                 try:
-                                    with open(file_path, "a", encoding="utf-8") as handle:
-                                        handle.write(summary_section)
+                                    _write_summary_with_body(file_path, fallback_summary, body_text)
                                     console.print(
-                                        "⚠️ Summarizer unavailable; appended fallback extractive summary",
+                                        "⚠️ Summarizer unavailable; appended fallback summary",
                                         style="yellow",
                                     )
                                 except OSError as exc:

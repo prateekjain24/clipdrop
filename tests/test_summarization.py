@@ -133,7 +133,7 @@ def mock_clipboard_for_summary(monkeypatch):
 
 
 def test_cli_summarize_appends_summary(monkeypatch):
-    summary_text = "Concise summary"
+    summary_text = """**Overall:** Concise summary\n### Key Takeaways\n- Key point\n### Action Items\n- None\n### Questions\n- None"""
 
     monkeypatch.setattr(
         "clipdrop.main.summarize_content",
@@ -145,8 +145,12 @@ def test_cli_summarize_appends_summary(monkeypatch):
         assert result.exit_code == 0
 
         saved = Path("notes.txt").read_text(encoding="utf-8")
-        assert "## Summary" in saved
+        assert saved.startswith("**Overall:**")
+        assert "### Key Takeaways" in saved
         assert summary_text in saved
+        assert "\n---\n" in saved
+        _, _, body = saved.partition("\n---\n\n")
+        assert body.strip().startswith("Sentence")
 
 
 def test_cli_summarize_handles_failure(monkeypatch):
@@ -160,15 +164,19 @@ def test_cli_summarize_handles_failure(monkeypatch):
         assert result.exit_code == 0
 
         saved = Path("report.txt").read_text(encoding="utf-8")
-        assert "## Summary (Fallback)" in saved
+        assert saved.startswith("> _Fallback summary generated locally_")
+        assert "**Overall:**" in saved
+        assert "### Key Takeaways" in saved
         assert "⚠️ Summarizer unavailable" in result.stdout
+        _, _, body = saved.partition("\n---\n\n")
+        assert body.strip().startswith("Sentence")
 
 
 def test_cli_summarize_long_content_uses_chunking(monkeypatch):
     from clipdrop import main as clipdrop_main
 
     long_content = ("paragraph " * 4001).strip()
-    summary_text = "Chunked summary"
+    summary_text = """**Overall:** Chunked summary\n### Key Takeaways\n- Insight one\n### Action Items\n- None\n### Questions\n- None"""
 
     monkeypatch.setattr(
         "clipdrop.main.summarize_content",
@@ -204,7 +212,11 @@ def test_cli_summarize_long_content_uses_chunking(monkeypatch):
         assert result.exit_code == 0
 
         saved = Path("scroll.txt").read_text(encoding="utf-8")
+        assert saved.startswith("**Overall:**")
         assert summary_text in saved
+        assert "### Key Takeaways" in saved
+        _, _, body = saved.partition("\n---\n\n")
+        assert body.strip().lower().startswith("paragraph")
 
         kwargs = captured["kwargs"]
         assert kwargs["content_format"] == "plaintext"
@@ -232,7 +244,7 @@ def test_cli_chunking_stage_output(monkeypatch, tmp_path):
         "clipdrop.main.summarize_content_with_chunking",
         lambda *_args, **_kwargs: SummaryResult(
             success=True,
-            summary="Chunked success summary",
+            summary="""**Overall:** Chunked success summary\n### Key Takeaways\n- Insight\n### Action Items\n- None\n### Questions\n- None""",
             stage_results=stage_results,
         ),
     )
@@ -257,7 +269,11 @@ def test_cli_chunking_stage_output(monkeypatch, tmp_path):
         assert "📊 Summarization stages:" in stdout
         assert "chunk_summaries" in stdout
         saved = Path("chunked.txt").read_text(encoding="utf-8")
+        assert saved.startswith("**Overall:**")
         assert "Chunked success summary" in saved
+        assert "### Key Takeaways" in saved
+        _, _, body = saved.partition("\n---\n\n")
+        assert body.strip().startswith("Paragraph")
 
 
 def test_cli_chunking_failure_reports_stage(monkeypatch):
@@ -301,4 +317,8 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         assert "chunk_summaries" in stdout
         assert "⚠️ Summarizer unavailable" in stdout
         saved = Path("chunked-fail.txt").read_text(encoding="utf-8")
-        assert "## Summary (Fallback)" in saved
+        assert saved.startswith("> _Fallback summary generated locally_")
+        assert "**Overall:**" in saved
+        assert "### Key Takeaways" in saved
+        _, _, body = saved.partition("\n---\n\n")
+        assert body.strip().startswith("Paragraph")

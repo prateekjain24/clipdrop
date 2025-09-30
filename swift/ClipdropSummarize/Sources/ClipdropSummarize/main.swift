@@ -4,21 +4,26 @@ import FoundationModels
 @main
 struct ClipdropSummarizeApp {
     private static let defaultInstructions = """
-You are a helpful assistant that creates concise summaries.
-Summarize the provided text in 2-4 sentences, focusing on key points and main ideas.
-Keep the summary clear and informative.
+You are an expert summarization assistant. Produce a Markdown summary that starts with a single sentence titled **Overall** capturing the core message. Follow with three sections using Markdown headings:
+- **Key Takeaways** — up to three bullet points highlighting the most important insights.
+- **Action Items** — up to three bullet points focused on next steps (write "- None" if there are no clear actions).
+- **Questions** — up to three bullet points flagging open issues or uncertainties (write "- None" if there are no obvious questions).
+
+Keep bullets concise (≤20 words), fact-based, and draw directly from the source. If names, dates, or metrics appear, include them. Never ask the user to provide more text.
 """
 
     private static let chunkInstructions = """
 You summarize long documents by first summarizing each section and then combining the results.
-For each section you receive, produce a short paragraph capturing the essential points in plain language.
-Stay factual and avoid speculation.
+For each section you receive, produce concise bullet-ready takeaways in plain language. Capture unique facts, decisions, action items, and open questions. Avoid meta commentary or requests for more input. Output should be well-formed sentences suitable for markdown bullets.
 """
 
     private static let aggregationHint = """
-Combine the section summaries into a cohesive overview.
-Highlight the main themes and outcomes in a concise form.
-Target NUMBER_SENTENCES sentences.
+Using the provided section-level summaries, craft the final Markdown summary with the required structure:
+1. Start with **Overall:** followed by one sentence that synthesizes the entire document.
+2. Provide **Key Takeaways**, **Action Items**, and **Questions** sections exactly in that order, each containing up to three bullet points.
+3. If a section has no content, include a single bullet `- None`.
+
+Ensure the final output is clean Markdown, avoids repetition, and does not mention the summarization process.
 """
 
     private static let singlePassLimit = 15_000
@@ -79,29 +84,49 @@ Target NUMBER_SENTENCES sentences.
             throw SummarizationFailure(message: "Content too long for summarization", stage: "precheck", retryable: false)
         }
 
-        let summary = try await runModel(
-            prompt: Prompt("Summarize this text:\n\n\(trimmed)"),
-            instructions: defaultInstructions,
-            options: GenerationOptions(
-                sampling: nil,
-                temperature: 0.3,
-                maximumResponseTokens: 200
-            ),
-            stage: nil
-        )
+        do {
+            let summary = try await runModel(
+                prompt: Prompt("Summarize the following content.\n\n\(trimmed)"),
+                instructions: defaultInstructions,
+                options: GenerationOptions(
+                    sampling: nil,
+                    temperature: 0.3,
+                    maximumResponseTokens: 320
+                ),
+                stage: nil
+            )
 
-        return SummaryResult(
-            success: true,
-            summary: summary,
-            error: nil,
-            retryable: nil,
-            stage: nil,
-            warnings: nil,
-            stageResults: nil,
-            mode: "single",
-            version: nil,
-            elapsedMs: nil
-        )
+            return SummaryResult(
+                success: true,
+                summary: summary,
+                error: nil,
+                retryable: nil,
+                stage: nil,
+                warnings: nil,
+                stageResults: nil,
+                mode: "single",
+                version: nil,
+                elapsedMs: nil
+            )
+        } catch let failure as SummarizationFailure where failure.message == placeholderMessage {
+            let fallback = fallbackSummary(
+                from: trimmed,
+                targetSentences: 3,
+                note: "Fallback summary generated due to unavailable model output"
+            )
+            return SummaryResult(
+                success: true,
+                summary: fallback,
+                error: nil,
+                retryable: nil,
+                stage: nil,
+                warnings: ["Single-pass summary used fallback summarization"],
+                stageResults: nil,
+                mode: "single",
+                version: nil,
+                elapsedMs: nil
+            )
+        }
     }
 
     private static func handleChunked(request: ChunkedSummarizationRequest) async throws -> SummaryResult {
@@ -133,11 +158,6 @@ Target NUMBER_SENTENCES sentences.
             sampling: nil,
             temperature: 0.3,
             maximumResponseTokens: 200
-        )
-        let aggregationOptions = GenerationOptions(
-            sampling: nil,
-            temperature: 0.3,
-            maximumResponseTokens: 240
         )
 
         let chunkInstructionText = request.instructions?.isEmpty == false ? request.instructions! : chunkInstructions
@@ -171,7 +191,7 @@ Summarize the following section in a short paragraph:
                 )
             } catch let failure as SummarizationFailure {
                 if failure.message == placeholderMessage {
-                    let fallback = fallbackSummary(from: snippet, targetSentences: 2)
+                    let fallback = fallbackChunkTakeaway(from: snippet)
                     if !fallback.isEmpty {
                         warnings.append("Chunk \(chunk.displayName) used fallback summarization")
                         chunkSummaries.append(
@@ -226,12 +246,16 @@ Summarize the following section in a short paragraph:
             finalSummary = try await runModel(
                 prompt: Prompt(aggregationPrompt),
                 instructions: aggregateInstructions,
-                options: aggregationOptions,
+                options: GenerationOptions(
+                    sampling: nil,
+                    temperature: 0.3,
+                    maximumResponseTokens: 320
+                ),
                 stage: "aggregation"
             )
         } catch let failure as SummarizationFailure {
             if failure.message == placeholderMessage {
-                let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences)
+                let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences, note: "Fallback summary generated due to unavailable model output")
                 let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
                 warnings.append("Aggregation used fallback summarization")
                 stageResults.append(StageResult(stage: "aggregation", status: "fallback", processed: nil, progress: 100))
@@ -321,8 +345,9 @@ Summarize the following section in a short paragraph:
 
         return """
 The following are summaries of sections from a longer document.
-Combine them into a cohesive summary of the overall content. Use approximately \(targetSentences) sentences.
+Use them to produce the required Markdown summary format described in the instructions.
 
+Section summaries:
 \(sections)
 """
     }
@@ -363,20 +388,102 @@ Combine them into a cohesive summary of the overall content. Use approximately \
         return patterns.contains { lowered.contains($0) }
     }
 
-    private static func fallbackSummary(from text: String, targetSentences: Int) -> String {
-        extractSentences(from: text, limit: targetSentences)
+    private static func fallbackChunkTakeaway(from text: String) -> String {
+        let sentences = splitSentences(from: text)
+        let excerpt = sentences.prefix(2)
+        return excerpt.joined(separator: " ")
     }
 
-    private static func fallbackSummary(fromChunks chunks: [ChunkSummary], targetSentences: Int) -> String {
+    private static func fallbackSummary(from text: String, targetSentences: Int, note: String? = nil) -> String {
+        let components = analyzeSentences(for: text, takeawaysLimit: 3)
+        return buildStructuredSummary(
+            overall: components.overall,
+            takeaways: components.takeaways,
+            actionItems: components.actionItems,
+            questions: components.questions,
+            note: note
+        )
+    }
+
+    private static func fallbackSummary(fromChunks chunks: [ChunkSummary], targetSentences: Int, note: String? = nil) -> String {
         let combined = chunks.sorted { $0.index < $1.index }
             .map { $0.summary }
             .joined(separator: " ")
-        return extractSentences(from: combined, limit: targetSentences)
+        return fallbackSummary(from: combined, targetSentences: targetSentences, note: note)
     }
 
-    private static func extractSentences(from text: String, limit: Int) -> String {
-        guard limit > 0 else { return "" }
+    private static func analyzeSentences(for text: String, takeawaysLimit: Int) -> (overall: String, takeaways: [String], actionItems: [String], questions: [String]) {
+        let sentences = splitSentences(from: text)
+        guard let first = sentences.first else {
+            return (
+                overall: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                takeaways: [],
+                actionItems: [],
+                questions: []
+            )
+        }
 
+        var remaining = Array(sentences.dropFirst())
+
+        var questions = remaining.filter { $0.contains("?") }
+        questions = Array(questions.prefix(3))
+        remaining.removeAll { questions.contains($0) }
+
+        let actionKeywords = [" should ", " need to ", " must ", " will ", " plan to ", " ensure ", " follow up", " schedule ", " consider ", " review "]
+        var actions: [String] = []
+        for sentence in remaining {
+            if actionKeywords.contains(where: { sentence.lowercased().contains($0) }) {
+                actions.append(sentence)
+            }
+            if actions.count == 3 {
+                break
+            }
+        }
+        remaining.removeAll { actions.contains($0) }
+
+        let takeaways = Array(remaining.prefix(takeawaysLimit))
+
+        return (
+            overall: first,
+            takeaways: takeaways,
+            actionItems: actions,
+            questions: questions
+        )
+    }
+
+    private static func buildStructuredSummary(
+        overall: String,
+        takeaways: [String],
+        actionItems: [String],
+        questions: [String],
+        note: String? = nil
+    ) -> String {
+        let formattedNote = note.map { "> _\($0)_\n\n" } ?? ""
+        let formattedTakeaways = bulletList(from: takeaways)
+        let formattedActions = bulletList(from: actionItems)
+        let formattedQuestions = bulletList(from: questions)
+
+        return """
+\(formattedNote)**Overall:** \(overall)
+### Key Takeaways
+\(formattedTakeaways)
+### Action Items
+\(formattedActions)
+### Questions
+\(formattedQuestions)
+""".trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func bulletList(from sentences: [String]) -> String {
+        if sentences.isEmpty {
+            return "- None"
+        }
+        return sentences.prefix(3)
+            .map { "- \($0)" }
+            .joined(separator: "\n")
+    }
+
+    private static func splitSentences(from text: String) -> [String] {
         var sentences: [String] = []
         var current = ""
         for character in text {
@@ -387,20 +494,15 @@ Combine them into a cohesive summary of the overall content. Use approximately \
                     sentences.append(trimmed)
                 }
                 current.removeAll(keepingCapacity: true)
-                if sentences.count >= limit {
-                    break
-                }
             }
         }
 
-        if sentences.count < limit {
-            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                sentences.append(trimmed)
-            }
+        let trailing = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trailing.isEmpty {
+            sentences.append(trailing)
         }
 
-        return sentences.prefix(limit).joined(separator: " ")
+        return sentences
     }
 }
 
