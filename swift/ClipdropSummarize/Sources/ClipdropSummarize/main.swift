@@ -190,7 +190,7 @@ Summarize the following section in a short paragraph:
                     ChunkSummary(id: chunk.id ?? "chunk-\(idx)", index: chunk.index ?? idx, summary: chunkSummary)
                 )
             } catch let failure as SummarizationFailure {
-                if failure.message == placeholderMessage {
+                if failure.message == placeholderMessage || failure.message == "Content too long for processing" {
                     let fallback = fallbackChunkTakeaway(from: snippet)
                     if !fallback.isEmpty {
                         warnings.append("Chunk \(chunk.displayName) used fallback summarization")
@@ -232,7 +232,84 @@ Summarize the following section in a short paragraph:
         )
 
         let targetSentences = request.strategy?.targetSummarySentences ?? 4
-        let aggregationPrompt = buildAggregationPrompt(from: chunkSummaries, targetSentences: targetSentences)
+
+        // Use hierarchical aggregation if we have too many chunks
+        let summariesToAggregate: [ChunkSummary]
+        if chunkSummaries.count > 8 {
+            // Perform intermediate aggregation in batches
+            let batchSize = 5
+            var intermediateSummaries: [ChunkSummary] = []
+            let batches = stride(from: 0, to: chunkSummaries.count, by: batchSize).map { startIndex -> ArraySlice<ChunkSummary> in
+                let endIndex = min(startIndex + batchSize, chunkSummaries.count)
+                return chunkSummaries[startIndex..<endIndex]
+            }
+
+            let intermediateInstructions = """
+Combine the following section summaries into a single concise paragraph that captures all key information. Maintain factual accuracy and include important details.
+"""
+
+            for (batchIndex, batch) in batches.enumerated() {
+                let batchPrompt = buildAggregationPrompt(from: Array(batch), targetSentences: targetSentences)
+
+                do {
+                    let intermediateSummary = try await runModel(
+                        prompt: Prompt(batchPrompt),
+                        instructions: intermediateInstructions,
+                        options: GenerationOptions(
+                            sampling: nil,
+                            temperature: 0.3,
+                            maximumResponseTokens: 200
+                        ),
+                        stage: "intermediate_aggregation"
+                    )
+
+                    intermediateSummaries.append(
+                        ChunkSummary(
+                            id: "batch-\(batchIndex)",
+                            index: batchIndex,
+                            summary: intermediateSummary
+                        )
+                    )
+                } catch let failure as SummarizationFailure {
+                    if failure.message == placeholderMessage {
+                        // Use fallback for this batch
+                        let fallbackBatchSummary = fallbackSummary(fromChunks: Array(batch), targetSentences: 2, note: nil)
+                        intermediateSummaries.append(
+                            ChunkSummary(
+                                id: "batch-\(batchIndex)",
+                                index: batchIndex,
+                                summary: fallbackBatchSummary
+                            )
+                        )
+                        warnings.append("Batch \(batchIndex + 1) used fallback summarization")
+                        continue
+                    }
+
+                    stageResults.append(StageResult(stage: "intermediate_aggregation", status: "error", processed: batchIndex, progress: 75))
+                    throw SummarizationFailure(
+                        message: failure.message,
+                        stage: failure.stage ?? "intermediate_aggregation",
+                        retryable: failure.retryable,
+                        stageResults: stageResults
+                    )
+                }
+            }
+
+            stageResults.append(
+                StageResult(
+                    stage: "intermediate_aggregation",
+                    status: "ok",
+                    processed: batches.count,
+                    progress: 85
+                )
+            )
+
+            summariesToAggregate = intermediateSummaries
+        } else {
+            summariesToAggregate = chunkSummaries
+        }
+
+        let aggregationPrompt = buildAggregationPrompt(from: summariesToAggregate, targetSentences: targetSentences)
 
         let aggregateInstructions: String
         if let custom = request.instructions, !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

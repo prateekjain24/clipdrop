@@ -165,8 +165,21 @@ clipdrop article.md --summarize
 # Works with existing files too
 clipdrop notes.txt --summarize
 
+# Handles very long transcripts automatically (73+ minutes tested)
+clipdrop -yt long-lecture.md --summarize
+clipdrop --audio podcast.txt --summarize
+
 # Summaries are skipped for short or non-text content
 clipdrop changelog.txt --summarize
+```
+
+**Long-form content:** For transcripts with >8 chunks, ClipDrop automatically uses hierarchical processing:
+```
+📊 Summarization stages:
+ - precheck: ok
+ - chunk_summaries: ok (23 chunks)
+ - intermediate_aggregation: ok (5 chunks)  ← Batches large content
+ - aggregation: ok
 ```
 
 # Combine flags for full automation

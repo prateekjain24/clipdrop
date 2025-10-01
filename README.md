@@ -80,6 +80,7 @@ clipdrop --audio meeting.txt --summarize
 Summaries include:
 - **Overall** headline sentence
 - Sections for **Key Takeaways**, **Action Items**, and **Questions**
+- **Handles transcripts of any length** - automatically uses hierarchical processing for long content
 - Local fallback when Apple Intelligence is busy, so you always get something useful
 
 ### 5. 🎥 **YouTube Transcripts**

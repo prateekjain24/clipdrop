@@ -239,7 +239,7 @@ def summarize_document(
     if use_chunking:
         total_length = len(summary_source)
         desired_chunks = max(6, min(20, total_length // 8000 + 1))
-        chunk_char_limit = max(3000, min(8000, max(1, total_length // desired_chunks)))
+        chunk_char_limit = max(3000, min(5000, max(1, total_length // desired_chunks)))
 
         chunk_estimate = max(2, total_length // chunk_char_limit + 1)
         console.print(
@@ -249,6 +249,7 @@ def summarize_document(
         console.print("🔄 Using multi-stage summarization...", style="dim")
 
         chunk_timeout = max(60, min(240, 30 + chunk_estimate * 8))
+        fallback_chunk_info = chunk_estimate
 
         with Progress(
             SpinnerColumn(),
@@ -275,45 +276,61 @@ def summarize_document(
         console.print("⚠️  Summarization skipped", style="yellow")
         return
 
-    if use_chunking and summary_result.stage_results:
+    final_summary: Optional[str] = None
+    final_warnings: list[str] = list(summary_result.warnings or [])
+    final_stage_results = summary_result.stage_results
+    message_style = "green"
+    message_text = "✨ Summary added to file"
+
+    if summary_result.success and summary_result.summary:
+        final_summary = summary_result.summary
+    else:
+        failure_reason = summary_result.error or "Summarization failed"
+        if summary_result.retryable:
+            failure_reason += " (try again shortly)"
+        if summary_result.stage:
+            failure_reason += f" [stage: {summary_result.stage}]"
+
+        fallback_summary = generate_fallback_summary(
+            summary_source,
+            note=fallback_note or f"Fallback summary generated locally (source: {failure_reason})",
+        )
+        if fallback_summary:
+            final_summary = fallback_summary
+            final_warnings.append(f"Fallback summary used ({failure_reason})")
+            message_text = "✨ Summary added via fallback"
+            if use_chunking:
+                processed = fallback_chunk_info or 0
+                fallback_stage = {
+                    "stage": "fallback",
+                    "status": "ok",
+                    "processed": processed,
+                }
+                if final_stage_results:
+                    final_stage_results = list(final_stage_results) + [fallback_stage]
+                else:
+                    final_stage_results = [fallback_stage]
+        else:
+            console.print(f"❌ Summarization failed: {failure_reason}", style="red")
+            return
+
+    if final_stage_results:
         console.print("📊 Summarization stages:", style="dim")
-        for stage_info in summary_result.stage_results:
+        for stage_info in final_stage_results:
             stage_name = stage_info.get("stage", "?")
             status = stage_info.get("status", "pending")
             processed = stage_info.get("processed")
             details = f" - {stage_name}: {status}"
-            if processed is not None:
+            if processed:
                 details += f" ({processed} chunks)"
             console.print(details, style="dim")
 
-    if summary_result.warnings:
-        for warning in summary_result.warnings:
-            console.print(f"⚠️  {warning}", style="yellow")
+    for warning in final_warnings:
+        console.print(f"⚠️  {warning}", style="yellow")
 
-    if summary_result.success and summary_result.summary:
-        _write_summary_with_body(file_path, summary_result.summary, content)
-        console.print("✨ Summary added to file", style="green")
-        return
-
-    failure_reason = summary_result.error or "Summarization failed"
-    if summary_result.retryable:
-        failure_reason += " (try again shortly)"
-    if summary_result.stage:
-        failure_reason += f" [stage: {summary_result.stage}]"
-
-    fallback_summary = generate_fallback_summary(
-        summary_source,
-        note=fallback_note or f"Fallback summary generated locally (source: {failure_reason})",
-    )
-    if fallback_summary:
-        _write_summary_with_body(file_path, fallback_summary, content)
-        console.print(
-            f"⚠️ Summarizer unavailable; appended fallback summary ({failure_reason})",
-            style="yellow",
-        )
-        return
-
-    console.print(f"❌ Summarization failed: {failure_reason}", style="red")
+    if final_summary:
+        _write_summary_with_body(file_path, final_summary, content)
+        console.print(message_text, style=message_style)
 
 
 def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> str:

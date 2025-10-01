@@ -9,6 +9,7 @@ from clipdrop.main import app, handle_audio_transcription
 from clipdrop.macos_ai import (
     SummaryResult,
     SummarizationNotAvailableError,
+    _parse_summarizer_process,
     summarize_content,
 )
 
@@ -167,7 +168,7 @@ def test_cli_summarize_handles_failure(monkeypatch):
         assert saved.startswith("> _Fallback summary generated locally")
         assert "**Overall:**" in saved
         assert "### Key Takeaways" in saved
-        assert "⚠️ Summarizer unavailable" in result.stdout
+        assert "✨ Summary added via fallback" in result.stdout
         _, _, body = saved.partition("\n---\n\n")
         assert body.strip().startswith("Sentence")
 
@@ -314,7 +315,8 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         assert result.exit_code == 0
         stdout = result.stdout
         assert "chunk_summaries" in stdout
-        assert "⚠️ Summarizer unavailable; appended fallback summary" in stdout
+        assert "fallback" in stdout
+        assert "✨ Summary added via fallback" in stdout
         saved = Path("chunked-fail.txt").read_text(encoding="utf-8")
         assert saved.startswith("> _Fallback summary generated locally")
         assert "**Overall:**" in saved
@@ -358,6 +360,34 @@ def test_youtube_summarize_adds_structured_summary(monkeypatch, tmp_path):
         assert "### Key Takeaways" in saved
         _, _, body = saved.partition("\n---\n\n")
         assert "Hello world" in body
+
+
+def test_parse_summarizer_process_accepts_camel_case():
+    from clipdrop import macos_ai
+
+    payload = {
+        "success": False,
+        "error": "Content too long for processing",
+        "retryable": False,
+        "stage": "chunk_summaries",
+        "stageResults": [
+            {"stage": "precheck", "status": "ok", "progress": 5},
+            {"stage": "chunk_summaries", "status": "error", "processed": 4},
+        ],
+    }
+
+    process = macos_ai.subprocess.CompletedProcess(
+        args=["clipdrop-summarize"],
+        returncode=1,
+        stdout=json.dumps(payload),
+        stderr="",
+    )
+
+    result = _parse_summarizer_process(process)
+
+    assert result.stage == "chunk_summaries"
+    assert result.stage_results == payload["stageResults"]
+    assert result.retryable is False
 
 
 def test_audio_transcription_summarize_adds_summary(monkeypatch, tmp_path):

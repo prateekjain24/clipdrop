@@ -5,6 +5,26 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2025-10-01
+
+### 🚀 Long-Form Content Summarization
+
+### Fixed
+- **Hierarchical summarization for long transcripts** - Now handles audio/YouTube transcripts of any length
+  - Automatically processes content in stages when >8 chunks detected
+  - Reduced individual chunk size (8000→5000 chars) to stay within model limits
+  - Intermediate aggregation in batches of 5 prevents context window overflow
+  - Successfully tested with 73-minute transcripts (~118K characters, 23 chunks)
+- **Improved fallback handling** - Chunks exceeding model limits now use local summarization instead of failing
+
+### Technical
+- Swift helper now performs multi-level aggregation for documents with >8 chunks
+- Added `intermediate_aggregation` stage to processing pipeline
+- Chunk size calculation in Python optimized for Foundation Model context limits
+- Better error recovery during chunk processing
+
+---
+
 ## [1.6.5] - 2025-10-01
 
 ### ✨ Structured Summaries Everywhere

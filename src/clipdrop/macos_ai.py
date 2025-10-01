@@ -281,11 +281,21 @@ def _parse_summarizer_process(process: subprocess.CompletedProcess[str]) -> "Sum
     stdout = (process.stdout or "").strip()
     stderr = (process.stderr or "").strip()
 
+    def _normalize_payload(data: Any) -> Any:
+        if isinstance(data, dict):
+            for camel_key, snake_key in (
+                ("stageResults", "stage_results"),
+                ("elapsedMs", "elapsed_ms"),
+            ):
+                if camel_key in data and snake_key not in data:
+                    data[snake_key] = data[camel_key]
+        return data
+
     if process.returncode != 0:
         error_payload = stdout or stderr
         if error_payload:
             try:
-                data = json.loads(error_payload)
+                data = _normalize_payload(json.loads(error_payload))
             except json.JSONDecodeError:
                 return SummaryResult(
                     success=False,
@@ -305,7 +315,7 @@ def _parse_summarizer_process(process: subprocess.CompletedProcess[str]) -> "Sum
         return SummaryResult(success=False, error="Summarization returned no data")
 
     try:
-        data = json.loads(stdout)
+        data = _normalize_payload(json.loads(stdout))
     except json.JSONDecodeError:
         return SummaryResult(success=False, error="Failed to parse summarization result")
 
