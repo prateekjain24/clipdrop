@@ -1,6 +1,6 @@
 [project]
 name = "clipdrop"
-version = "1.6.6"
+version = "1.6.7"
 description = "Save clipboard content (text and images) to files with smart format detection"
 readme = "README.md"
 authors = [

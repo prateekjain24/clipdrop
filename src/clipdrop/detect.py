@@ -29,6 +29,7 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
         return False, SINGLE_PASS_LIMIT_REASON
 
     # Heuristic filter to avoid passing obvious code snippets.
+    # Use strong indicators only - be forgiving to allow technical text.
     lowered = content.lower()
     code_keywords = (
         "def ",
@@ -38,9 +39,6 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
         "#!/",
         "import ",
         "const ",
-        " var ",
-        "public ",
-        "private ",
     )
     code_hits = sum(lowered.count(keyword) for keyword in code_keywords)
     fenced_code = "```" in content or "</code>" in lowered
@@ -50,8 +48,8 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
     )
     structural_tokens = any(token in content for token in ("{", "};", "=>", "#include"))
 
-    if fenced_code or code_hits >= 3 or (
-        code_hits >= 2 and (indented_code or structural_tokens)
+    if fenced_code or code_hits >= 5 or (
+        code_hits >= 3 and indented_code and structural_tokens
     ):
         return False, "Content appears to be code"
 
