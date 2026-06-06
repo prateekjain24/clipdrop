@@ -5,6 +5,25 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-06-06
+
+### ✨ AI-Suggested Filenames
+
+### Added
+- **`--auto-name` flag** - derive a descriptive filename from clipboard content using the on-device model (guided generation)
+  - The model proposes a short Title-Case title, which is slugified into a filesystem-safe name
+  - The positional filename becomes optional; a provided extension is honored, otherwise format detection picks it
+  - Composes with other flags, e.g. `clipdrop --ocr --auto-name` to name a screenshot from its recognized text
+  - Falls back to a heuristic content slug when Apple Intelligence is unavailable, so it degrades gracefully
+  - New Swift helper `clipdrop-suggest-name` (`@Generable SuggestedName { title }`, universal arm64+x86_64)
+
+### Technical
+- `macos_ai.suggest_filename()` invokes the helper and returns the title (or `None`)
+- `files.slugify()` produces a lowercase/hyphenated, word- and length-capped slug
+- 16 new Python tests (slugify, suggest_filename, generate_auto_filename, CLI behavior)
+
+---
+
 ## [1.8.0] - 2026-06-06
 
 ### ✨ On-Device Image OCR

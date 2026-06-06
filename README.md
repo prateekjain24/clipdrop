@@ -41,7 +41,7 @@ Perfect for:
 - ✍️ **Writers** - Build documents by appending content throughout the day
 - 🎓 **Students** - Organize research without switching apps
 
-## 🎯 Top 5 Killer Features
+## 🎯 Killer Features
 
 ### 1. 🧠 **Smart Format Detection**
 ClipDrop knows what you copied and saves it correctly:
@@ -98,6 +98,17 @@ Never accidentally save credentials:
 clipdrop config.env -s           # Scan before saving
 clipdrop api-keys.txt --scan-mode redact  # Auto-redact secrets
 ```
+
+### 7. 🏷️ **Auto-Name** (macOS 26.0+)
+Stop inventing filenames. Let the on-device model read the content and propose one:
+```bash
+clipdrop --auto-name             # → quarterly-revenue-growth.md
+clipdrop --auto-name notes.txt   # Honors the extension you give it
+clipdrop --ocr --auto-name       # Name a screenshot from its recognized text
+```
+- A short Title-Case suggestion is slugified into a tidy, filesystem-safe name
+- The positional filename is optional; a provided extension is kept, otherwise format detection picks it
+- Falls back to a content-based slug when Apple Intelligence isn't available
 
 ## 📖 Common Workflows
 
@@ -212,9 +223,15 @@ clipdrop --audio        # Force audio transcription
 clipdrop --text-only    # Ignore images
 clipdrop --image-only   # Ignore text
 clipdrop --ocr          # Extract text from a clipboard image (macOS, on-device)
+clipdrop --auto-name    # Let ClipDrop name the file from its content
 clipdrop -s             # Scan for secrets
 clipdrop --lang es      # Set language
 ```
+
+> 🏷️ **Auto-name** asks the on-device model for a short title and turns it
+> into a tidy slug (`clipdrop --auto-name` → `q3-roadmap-plan.md`). No filename
+> needed; a provided extension is kept. Falls back to a content-based slug when
+> Apple Intelligence isn't available.
 
 > 🔎 **OCR** turns a copied screenshot into text using Apple's on-device Vision
 > framework — no data leaves your Mac. It composes with other flags, e.g.

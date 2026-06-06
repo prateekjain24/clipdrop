@@ -415,6 +415,46 @@ def _parse_summarizer_process(process: subprocess.CompletedProcess[str]) -> "Sum
     )
 
 
+def suggest_filename(content: str, timeout: int = 15) -> Optional[str]:
+    """Ask the on-device model for a short descriptive title for ``content``.
+
+    Returns the suggested title (the caller slugifies it), or ``None`` if the
+    helper is unavailable or fails — callers should fall back to a heuristic.
+    """
+    stripped = content.strip()
+    if not stripped:
+        return None
+
+    try:
+        helper = get_swift_helper_path("clipdrop-suggest-name")
+    except SummarizationNotAvailableError:
+        return None
+
+    try:
+        process = subprocess.run(  # noqa: S603 - controlled args
+            [str(helper)],
+            input=stripped,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+    stdout = (process.stdout or "").strip()
+    if not stdout:
+        return None
+
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if data.get("success") and data.get("title"):
+        return str(data["title"]).strip() or None
+    return None
+
+
 def summarize_content(content: str, timeout: int = 30) -> SummaryResult:
     """Summarize text using the on-device Apple Intelligence helper."""
 
