@@ -7,6 +7,7 @@ OUT_DIR="$ROOT_DIR/src/clipdrop/bin"
 declare -a HELPERS=(
   "clipdrop-transcribe-clipboard:swift/TranscribeClipboard"
   "clipdrop-summarize:swift/ClipdropSummarize"
+  "clipdrop-ocr:swift/ClipdropOCR"
 )
 
 mkdir -p "$OUT_DIR"
