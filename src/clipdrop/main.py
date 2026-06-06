@@ -479,6 +479,224 @@ def render_csv_table(table: dict) -> str:
     return buffer.getvalue()
 
 
+def _try_html_mixed_to_pdf(filename: str, preview: bool, fetch_remote_images: bool) -> None:
+    """Render copied web (HTML + images) content to a PDF.
+
+    Raises ``typer.Exit`` when a PDF is created or the user cancels; returns
+    normally so the caller can fall through to ordinary text/image handling
+    when there is no usable HTML.
+    """
+    from clipdrop import html_parser
+
+    html_content = html_parser.get_html_from_clipboard()
+    if not html_content:
+        return
+
+    # Try enhanced parsing first for better structure preservation
+    try:
+        enhanced_chunks = html_parser.parse_html_content_enhanced(
+            html_content, allow_remote=fetch_remote_images
+        )
+        use_enhanced = len(enhanced_chunks) > 0
+    except Exception:
+        enhanced_chunks = None
+        use_enhanced = False
+
+    if use_enhanced and enhanced_chunks:
+        file_path = Path(filename)
+        if not file_path.suffix:
+            final_filename = f"{filename}.pdf"
+            console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
+        elif file_path.suffix.lower() != '.pdf':
+            final_filename = f"{file_path.stem}.pdf"
+            console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
+        else:
+            final_filename = filename
+            console.print("[cyan]📄 Creating enhanced PDF from HTML content...[/cyan]")
+
+        file_path = Path(final_filename)
+
+        # Count different content types for preview
+        content_counts: dict = {}
+        total_text_len = 0
+        for chunk_type, chunk_content, _metadata in enhanced_chunks:
+            content_counts[chunk_type] = content_counts.get(chunk_type, 0) + 1
+            if chunk_type in ['text', 'paragraph', 'heading']:
+                total_text_len += len(str(chunk_content))
+
+        if preview:
+            preview_lines = ["[cyan]HTML Content (Enhanced):[/cyan]"]
+            preview_lines.append(f"Text: {total_text_len} characters")
+            for ctype, count in content_counts.items():
+                preview_lines.append(f"{ctype.title()}: {count} element(s)")
+
+            console.print(Panel(
+                "\n".join(preview_lines),
+                title=f"Preview: {final_filename}",
+                expand=False
+            ))
+            if not Confirm.ask("[cyan]Create this enhanced PDF?[/cyan]", default=True):
+                console.print("[yellow]Operation cancelled.[/yellow]")
+                raise typer.Exit()
+
+        pdf.create_pdf_from_enhanced_html(enhanced_chunks, file_path, educational_mode=True)
+
+        file_size = file_path.stat().st_size
+        size_str = files.get_file_size_human(file_size)
+        console.print(f"[green]✅ Created enhanced PDF ({total_text_len} chars, {len(content_counts)} content types, {size_str}) at {file_path}[/green]")
+        raise typer.Exit()
+
+    # Fall back to standard ordered parsing
+    ordered_chunks = html_parser.parse_html_content_ordered(
+        html_content, allow_remote=fetch_remote_images
+    )
+    if not ordered_chunks:
+        return
+
+    file_path = Path(filename)
+    if not file_path.suffix:
+        final_filename = f"{filename}.pdf"
+        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+    elif file_path.suffix.lower() != '.pdf':
+        final_filename = f"{file_path.stem}.pdf"
+        console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
+    else:
+        final_filename = filename
+        console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
+
+    file_path = Path(final_filename)
+
+    text_chunks = sum(1 for t, _ in ordered_chunks if t == 'text')
+    image_chunks = sum(1 for t, _ in ordered_chunks if t == 'image')
+    total_text_len = sum(len(c) for t, c in ordered_chunks if t == 'text' and isinstance(c, str))
+
+    if preview:
+        console.print(Panel(
+            f"[cyan]HTML Content:[/cyan]\n"
+            f"Text: {total_text_len} characters in {text_chunks} sections\n"
+            f"Images: {image_chunks} embedded images",
+            title=f"Preview: {final_filename}",
+            expand=False
+        ))
+        if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
+            console.print("[yellow]Operation cancelled.[/yellow]")
+            raise typer.Exit()
+
+    pdf.create_pdf_from_html_ordered_content(ordered_chunks, file_path)
+
+    file_size = file_path.stat().st_size
+    size_str = files.get_file_size_human(file_size)
+    console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
+    raise typer.Exit()
+
+
+def _apply_ocr(image, lang: Optional[str]) -> str:
+    """OCR a clipboard image into text, or exit with a clear message."""
+    if image is None:
+        console.print("[red]❌ No image in clipboard to run OCR on.[/red]")
+        console.print("[dim]Copy a screenshot or image, then try again.[/dim]")
+        raise typer.Exit(1)
+
+    from clipdrop.macos_ai import ocr_image, OCRNotAvailableError
+
+    console.print("[cyan]🔎 Extracting text from image (on-device OCR)...[/cyan]")
+    try:
+        recognized = ocr_image(image, lang=lang)
+    except OCRNotAvailableError as exc:
+        console.print(f"[red]❌ {exc}[/red]")
+        raise typer.Exit(2)
+    except RuntimeError as exc:
+        console.print(f"[red]❌ OCR failed: {exc}[/red]")
+        raise typer.Exit(1)
+
+    if not recognized.strip():
+        console.print("[yellow]⚠️  No text detected in image[/yellow]")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓ Extracted {len(recognized)} characters[/green]")
+    return recognized
+
+
+def _apply_transform(
+    content: Optional[str],
+    *,
+    rewrite: Optional[str],
+    prompt: Optional[str],
+    to_table: bool,
+    lang: Optional[str],
+    filename: Optional[str],
+) -> Optional[str]:
+    """Apply a single transform verb to text content.
+
+    Returns the transformed text, or None when no transform was requested.
+    Exits with a clear message on conflict, missing content, or failure.
+    """
+    transform_ops = [
+        name for name, value in (
+            ("rewrite", rewrite),
+            ("prompt", prompt),
+            ("table", to_table),
+        ) if value
+    ]
+    if len(transform_ops) > 1:
+        console.print("[red]❌ Use only one transform at a time (--rewrite / --prompt / --to-table).[/red]")
+        raise typer.Exit(1)
+    if not transform_ops:
+        return None
+
+    transform_op = transform_ops[0]
+    if not content or not content.strip():
+        console.print("[red]❌ No text content to transform.[/red]")
+        console.print("[dim]Copy text (or use --ocr on an image) before --rewrite/--prompt/--to-table.[/dim]")
+        raise typer.Exit(1)
+
+    from clipdrop.macos_ai import transform_content, TransformNotAvailableError
+
+    labels = {"rewrite": "Rewriting", "prompt": "Transforming", "table": "Building table from"}
+    console.print(f"[cyan]✍️  {labels[transform_op]} content (on-device)...[/cyan]")
+    try:
+        data = transform_content(
+            content,
+            transform_op,
+            style=rewrite,
+            instruction=prompt,
+            language=lang,
+        )
+    except TransformNotAvailableError as exc:
+        console.print(f"[red]❌ {exc}[/red]")
+        raise typer.Exit(2)
+    except RuntimeError as exc:
+        console.print(f"[red]❌ Transform failed: {exc}[/red]")
+        raise typer.Exit(1)
+
+    if transform_op == "table":
+        table = data.get("table") or {}
+        target_ext = Path(filename).suffix.lower() if filename else ""
+        result = render_csv_table(table) if target_ext == ".csv" else render_markdown_table(table)
+    else:
+        result = data.get("result", "")
+
+    if not result or not result.strip():
+        console.print("[yellow]⚠️  Transform produced no output[/yellow]")
+        raise typer.Exit(1)
+
+    console.print("[green]✓ Transformed[/green]")
+    return result
+
+
+def _resolve_auto_name(filename: Optional[str], content: Optional[str]) -> Optional[str]:
+    """Resolve an --auto-name filename from content, or exit if impossible."""
+    generated = generate_auto_filename(content, filename)
+    if generated:
+        console.print(f"[cyan]🏷️  Auto-named file: {generated}[/cyan]")
+        return generated
+    if filename is None:
+        console.print("[red]❌ Could not auto-name: no text content to derive a name from.[/red]")
+        console.print("[dim]Provide a filename, or combine --auto-name with text/--ocr content.[/dim]")
+        raise typer.Exit(1)
+    return filename
+
+
 def version_callback(value: bool):
     """Handle --version flag."""
     if value:
@@ -1083,125 +1301,10 @@ def main(
             display_error('empty_clipboard')
             raise typer.Exit(1)
 
-        # Handle HTML mixed content (from web pages)
+        # Handle HTML mixed content (from web pages) -> PDF. Falls through if
+        # there is no usable HTML to render.
         if content_type == 'html_mixed':
-            from clipdrop import html_parser
-            # Try to get ordered chunks first
-            html_content = html_parser.get_html_from_clipboard()
-            if html_content:
-                # Try enhanced parsing first for better structure preservation
-                try:
-                    enhanced_chunks = html_parser.parse_html_content_enhanced(
-                        html_content, allow_remote=fetch_remote_images
-                    )
-                    use_enhanced = len(enhanced_chunks) > 0
-                except Exception:
-                    # Fall back to standard parsing
-                    enhanced_chunks = None
-                    use_enhanced = False
-
-                if use_enhanced and enhanced_chunks:
-                    # Use enhanced PDF generation
-                    file_path = Path(filename)
-
-                    # Add .pdf extension if not present
-                    if not file_path.suffix:
-                        final_filename = f"{filename}.pdf"
-                        console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
-                    elif file_path.suffix.lower() != '.pdf':
-                        final_filename = f"{file_path.stem}.pdf"
-                        console.print(f"[cyan]📄 HTML with enhanced structure detected. Creating PDF: {final_filename}[/cyan]")
-                    else:
-                        final_filename = filename
-                        console.print("[cyan]📄 Creating enhanced PDF from HTML content...[/cyan]")
-
-                    file_path = Path(final_filename)
-
-                    # Count different content types for preview
-                    content_counts = {}
-                    total_text_len = 0
-                    for chunk_type, content, metadata in enhanced_chunks:
-                        content_counts[chunk_type] = content_counts.get(chunk_type, 0) + 1
-                        if chunk_type in ['text', 'paragraph', 'heading']:
-                            total_text_len += len(str(content))
-
-                    # Show preview if requested
-                    if preview:
-                        preview_lines = ["[cyan]HTML Content (Enhanced):[/cyan]"]
-                        preview_lines.append(f"Text: {total_text_len} characters")
-                        for content_type, count in content_counts.items():
-                            preview_lines.append(f"{content_type.title()}: {count} element(s)")
-
-                        console.print(Panel(
-                            "\n".join(preview_lines),
-                            title=f"Preview: {final_filename}",
-                            expand=False
-                        ))
-                        if not Confirm.ask("[cyan]Create this enhanced PDF?[/cyan]", default=True):
-                            console.print("[yellow]Operation cancelled.[/yellow]")
-                            raise typer.Exit()
-
-                    # Create enhanced PDF
-                    pdf.create_pdf_from_enhanced_html(
-                        enhanced_chunks, file_path, educational_mode=True
-                    )
-
-                    # Success message
-                    file_size = file_path.stat().st_size
-                    size_str = files.get_file_size_human(file_size)
-                    console.print(f"[green]✅ Created enhanced PDF ({total_text_len} chars, {len(content_counts)} content types, {size_str}) at {file_path}[/green]")
-                    raise typer.Exit()
-
-                else:
-                    # Fall back to standard ordered parsing
-                    ordered_chunks = html_parser.parse_html_content_ordered(
-                        html_content, allow_remote=fetch_remote_images
-                    )
-
-                    if ordered_chunks:
-                        file_path = Path(filename)
-
-                        # Add .pdf extension if not present
-                        if not file_path.suffix:
-                            final_filename = f"{filename}.pdf"
-                            console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
-                        elif file_path.suffix.lower() != '.pdf':
-                            final_filename = f"{file_path.stem}.pdf"
-                            console.print(f"[cyan]📄 HTML with images detected. Creating PDF: {final_filename}[/cyan]")
-                        else:
-                            final_filename = filename
-                            console.print("[cyan]📄 Creating PDF from HTML content with images...[/cyan]")
-
-                        file_path = Path(final_filename)
-
-                        # Count text and image chunks for preview
-                        text_chunks = sum(1 for t, _ in ordered_chunks if t == 'text')
-                        image_chunks = sum(1 for t, _ in ordered_chunks if t == 'image')
-                        total_text_len = sum(len(c) for t, c in ordered_chunks if t == 'text' and isinstance(c, str))
-
-                        # Show preview if requested
-                        if preview:
-                            console.print(Panel(
-                                f"[cyan]HTML Content:[/cyan]\n"
-                                f"Text: {total_text_len} characters in {text_chunks} sections\n"
-                                f"Images: {image_chunks} embedded images",
-                                title=f"Preview: {final_filename}",
-                                expand=False
-                            ))
-                            if not Confirm.ask("[cyan]Create this PDF?[/cyan]", default=True):
-                                console.print("[yellow]Operation cancelled.[/yellow]")
-                                raise typer.Exit()
-
-                        # Create PDF from ordered HTML content
-                        pdf.create_pdf_from_html_ordered_content(
-                            ordered_chunks, file_path
-                        )
-
-                        # Success message
-                        file_size = file_path.stat().st_size
-                        size_str = files.get_file_size_human(file_size)
-                        console.print(f"[green]✅ Created PDF from HTML ({total_text_len} chars, {image_chunks} images, {size_str}) at {file_path}[/green]")
-                        raise typer.Exit()
+            _try_html_mixed_to_pdf(filename, preview, fetch_remote_images)
 
         # Check for conflicting flags
         if text_only and image_only:
@@ -1214,95 +1317,27 @@ def main(
 
         # OCR mode - extract text from a clipboard image and treat it as text
         if ocr:
-            if image is None:
-                console.print("[red]❌ No image in clipboard to run OCR on.[/red]")
-                console.print("[dim]Copy a screenshot or image, then try again.[/dim]")
-                raise typer.Exit(1)
-
-            from clipdrop.macos_ai import ocr_image, OCRNotAvailableError
-
-            console.print("[cyan]🔎 Extracting text from image (on-device OCR)...[/cyan]")
-            try:
-                recognized = ocr_image(image, lang=lang)
-            except OCRNotAvailableError as exc:
-                console.print(f"[red]❌ {exc}[/red]")
-                raise typer.Exit(2)
-            except RuntimeError as exc:
-                console.print(f"[red]❌ OCR failed: {exc}[/red]")
-                raise typer.Exit(1)
-
-            if not recognized.strip():
-                console.print("[yellow]⚠️  No text detected in image[/yellow]")
-                raise typer.Exit(1)
-
-            console.print(f"[green]✓ Extracted {len(recognized)} characters[/green]")
-            content = recognized
+            content = _apply_ocr(image, lang)
             image = None
             content_type = 'text'
 
         # Transform mode - rewrite / freeform prompt / to-table over text content
-        transform_ops = [
-            name for name, value in (
-                ("rewrite", rewrite),
-                ("prompt", prompt),
-                ("table", to_table),
-            ) if value
-        ]
-        if len(transform_ops) > 1:
-            console.print("[red]❌ Use only one transform at a time (--rewrite / --prompt / --to-table).[/red]")
-            raise typer.Exit(1)
-
-        if transform_ops:
-            transform_op = transform_ops[0]
-            if not content or not content.strip():
-                console.print("[red]❌ No text content to transform.[/red]")
-                console.print("[dim]Copy text (or use --ocr on an image) before --rewrite/--prompt/--to-table.[/dim]")
-                raise typer.Exit(1)
-
-            from clipdrop.macos_ai import transform_content, TransformNotAvailableError
-
-            labels = {"rewrite": "Rewriting", "prompt": "Transforming", "table": "Building table from"}
-            console.print(f"[cyan]✍️  {labels[transform_op]} content (on-device)...[/cyan]")
-            try:
-                data = transform_content(
-                    content,
-                    transform_op,
-                    style=rewrite,
-                    instruction=prompt,
-                    language=lang,
-                )
-            except TransformNotAvailableError as exc:
-                console.print(f"[red]❌ {exc}[/red]")
-                raise typer.Exit(2)
-            except RuntimeError as exc:
-                console.print(f"[red]❌ Transform failed: {exc}[/red]")
-                raise typer.Exit(1)
-
-            if transform_op == "table":
-                table = data.get("table") or {}
-                target_ext = Path(filename).suffix.lower() if filename else ""
-                content = render_csv_table(table) if target_ext == ".csv" else render_markdown_table(table)
-            else:
-                content = data.get("result", "")
-
-            if not content or not content.strip():
-                console.print("[yellow]⚠️  Transform produced no output[/yellow]")
-                raise typer.Exit(1)
-
+        transformed = _apply_transform(
+            content,
+            rewrite=rewrite,
+            prompt=prompt,
+            to_table=to_table,
+            lang=lang,
+            filename=filename,
+        )
+        if transformed is not None:
+            content = transformed
             image = None
             content_type = 'text'
-            console.print("[green]✓ Transformed[/green]")
 
         # Auto-name the file from its content when requested
         if auto_name:
-            generated = generate_auto_filename(content, filename)
-            if generated:
-                filename = generated
-                console.print(f"[cyan]🏷️  Auto-named file: {filename}[/cyan]")
-            elif filename is None:
-                console.print("[red]❌ Could not auto-name: no text content to derive a name from.[/red]")
-                console.print("[dim]Provide a filename, or combine --auto-name with text/--ocr content.[/dim]")
-                raise typer.Exit(1)
+            filename = _resolve_auto_name(filename, content)
 
         # Handle append mode - force text-only
         if append:
