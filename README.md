@@ -237,7 +237,13 @@ clipdrop --ocr          # Extract text from a clipboard image (macOS, on-device)
 clipdrop --auto-name    # Let ClipDrop name the file from its content
 clipdrop -s             # Scan for secrets
 clipdrop --lang es      # Set language
+clipdrop --fetch-remote-images  # Allow HTML→PDF to fetch remote images (off by default)
 ```
+
+> 🛡️ **Privacy default:** when saving HTML as a PDF, ClipDrop no longer fetches
+> remote images automatically — embedded `data:` images are always included, but
+> `http(s)` images require `--fetch-remote-images`. Remote fetches are
+> SSRF-guarded (private/loopback/link-local addresses are blocked).
 
 > 🏷️ **Auto-name** asks the on-device model for a short title and turns it
 > into a tidy slug (`clipdrop --auto-name` → `q3-roadmap-plan.md`). No filename
