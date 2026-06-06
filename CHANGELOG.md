@@ -5,6 +5,49 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-06-06
+
+### 🔒 Security & Correctness Hardening
+
+This is a major release focused on security, privacy, and maintainability. The
+one behavior change below is why it's a major version.
+
+### ⚠️ Breaking
+- **Remote image fetching in HTML→PDF is now opt-in.** Saving HTML-with-images
+  no longer silently fetches remote `http(s)` images by default. Pass
+  `--fetch-remote-images` to restore the old behavior. Embedded `data:` images
+  are always included. This closes an SSRF/privacy hole where rendering copied
+  HTML could make the tool reach arbitrary URLs.
+
+### Fixed (security)
+- **SSRF guard** - remote image fetches now resolve the host and block
+  private/loopback/link-local/reserved/multicast targets (incl.
+  `169.254.169.254`); `http(s)` only
+- **Decompression-bomb protection** - untrusted (base64/remote) images are
+  opened through a guarded path that promotes Pillow's `DecompressionBombWarning`
+  to an error and bounds input size
+- **Packaging** - the wheel now force-includes all five Swift helpers
+  (`transcribe`, `summarize`, `ocr`, `suggest-name`, `transform`); previously
+  only the transcribe helper was explicitly listed
+- **Exception handling** - `files.write_text` now raises the typed
+  `PathTraversalError` (re-exported from `files`), so the corresponding handler
+  in `main` resolves instead of collapsing into an `AttributeError`
+
+### Changed (hygiene)
+- `hashlib.sha1(..., usedforsecurity=False)` in the secret-mask stub
+- Replaced assert-based control flow in the transcribe helpers (which is
+  stripped under `python -O`) with explicit checks
+
+### Internal
+- **`main()` decomposed** into focused, independently testable stages
+  (`_try_html_mixed_to_pdf`, `_apply_ocr`, `_apply_transform`,
+  `_resolve_auto_name`) - no behavior change, also fixing a latent
+  loop-variable shadowing bug in the inline HTML→PDF path
+- Added `test_security.py` (SSRF / decompression-bomb / path-traversal coverage);
+  bandit High/Medium = 0, ruff clean
+
+---
+
 ## [1.10.0] - 2026-06-06
 
 ### ✨ Clipboard Transforms — Writing Tools for the Terminal

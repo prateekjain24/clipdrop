@@ -209,7 +209,8 @@ def transcribe_from_clipboard(lang: str | None = None) -> list[dict[str, Any]]:
     )
 
     segments: list[dict[str, Any]] = []
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        raise RuntimeError("Failed to capture transcription helper output")
     for line in proc.stdout:
         line = line.strip()
         if not line:
@@ -268,7 +269,8 @@ def transcribe_from_clipboard_stream(
 
     segment_count = 0
     try:
-        assert proc.stdout is not None
+        if proc.stdout is None:
+            raise RuntimeError("Failed to capture transcription helper output")
         for line in proc.stdout:
             line = line.strip()
             if not line:
