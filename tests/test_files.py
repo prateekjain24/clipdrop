@@ -231,7 +231,9 @@ class TestWriteText:
         """Test prevention of path traversal attacks."""
         dangerous_path = temp_directory / "../../../etc/passwd"
 
-        with pytest.raises(ValueError, match="Path traversal not allowed"):
+        from clipdrop.exceptions import PathTraversalError
+
+        with pytest.raises(PathTraversalError, match="Path traversal not allowed"):
             files.write_text(dangerous_path, "content", force=True)
 
     def test_write_string_path(self, temp_directory):

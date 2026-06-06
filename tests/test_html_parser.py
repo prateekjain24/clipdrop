@@ -164,57 +164,76 @@ class TestExtractBase64Image:
 
 
 class TestDownloadImage:
-    """Test image downloading."""
+    """Test image downloading (opt-in, SSRF-guarded)."""
 
+    @patch('clipdrop.html_parser._is_safe_public_url', return_value=True)
     @patch('requests.get')
-    def test_download_success(self, mock_get):
-        """Test successful image download."""
-        # Create a mock image
+    def test_download_success(self, mock_get, _safe):
+        """Successful download when remote fetching is explicitly enabled."""
         img = Image.new('RGB', (10, 10), color='blue')
         buffer = io.BytesIO()
         img.save(buffer, format='PNG')
-        buffer.seek(0)
+        data = buffer.getvalue()
 
         mock_response = Mock()
         mock_response.headers = {'Content-Type': 'image/png'}
-        mock_response.content = buffer.getvalue()
+        mock_response.iter_content = lambda chunk_size=65536: [data]
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
-        result = html_parser.download_image('https://example.com/image.png')
-        assert result is not None
+        result = html_parser.download_image('https://example.com/image.png', allow_remote=True)
         assert isinstance(result, Image.Image)
         assert result.size == (10, 10)
 
+    def test_download_disabled_by_default(self):
+        """Remote fetching is off unless explicitly allowed (privacy default)."""
+        with patch('requests.get') as mock_get:
+            result = html_parser.download_image('https://example.com/image.png')
+            assert result is None
+            mock_get.assert_not_called()
+
+    @patch('clipdrop.html_parser._is_safe_public_url', return_value=False)
+    def test_download_blocks_unsafe_url(self, _safe):
+        """SSRF guard blocks private/loopback/metadata targets even when allowed."""
+        with patch('requests.get') as mock_get:
+            result = html_parser.download_image(
+                'http://169.254.169.254/latest/meta-data/', allow_remote=True
+            )
+            assert result is None
+            mock_get.assert_not_called()
+
+    @patch('clipdrop.html_parser._is_safe_public_url', return_value=True)
     @patch('requests.get')
-    def test_download_non_image_content(self, mock_get):
+    def test_download_non_image_content(self, mock_get, _safe):
         """Test downloading non-image content."""
         mock_response = Mock()
         mock_response.headers = {'Content-Type': 'text/html'}
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
-        result = html_parser.download_image('https://example.com/page.html')
+        result = html_parser.download_image('https://example.com/page.html', allow_remote=True)
         assert result is None
 
+    @patch('clipdrop.html_parser._is_safe_public_url', return_value=True)
     @patch('requests.get')
-    def test_download_timeout(self, mock_get):
+    def test_download_timeout(self, mock_get, _safe):
         """Test download timeout."""
         import requests
         mock_get.side_effect = requests.Timeout()
 
-        result = html_parser.download_image('https://example.com/image.png')
+        result = html_parser.download_image('https://example.com/image.png', allow_remote=True)
         assert result is None
 
+    @patch('clipdrop.html_parser._is_safe_public_url', return_value=True)
     @patch('requests.get')
-    def test_download_http_error(self, mock_get):
+    def test_download_http_error(self, mock_get, _safe):
         """Test HTTP error during download."""
         import requests
         mock_response = Mock()
         mock_response.raise_for_status.side_effect = requests.HTTPError()
         mock_get.return_value = mock_response
 
-        result = html_parser.download_image('https://example.com/image.png')
+        result = html_parser.download_image('https://example.com/image.png', allow_remote=True)
         assert result is None
 
 
@@ -254,7 +273,7 @@ class TestProcessHtmlImages:
         result = html_parser.process_html_images(images)
         assert len(result) == 1
         assert result[0] == mock_img
-        mock_download.assert_called_once_with('https://example.com/img.jpg')
+        mock_download.assert_called_once_with('https://example.com/img.jpg', allow_remote=False)
 
     @patch('clipdrop.html_parser.download_image')
     def test_process_mixed_images(self, mock_download):

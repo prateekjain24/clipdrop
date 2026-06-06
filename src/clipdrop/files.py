@@ -14,7 +14,8 @@ from rich.prompt import Confirm
 from clipdrop.exceptions import (
     FilePermissionError,
     FileExistsError as ClipDropFileExistsError,
-    EmptyContentError
+    EmptyContentError,
+    PathTraversalError,
 )
 
 console = Console()
@@ -113,7 +114,7 @@ def write_text(path: Union[Path, str], content: str, force: bool = False) -> Non
 
     # Check for dangerous paths BEFORE resolving
     if ".." in str(path):
-        raise ValueError("Path traversal not allowed")
+        raise PathTraversalError(str(path))
 
     # Make path absolute to avoid confusion
     path = path.resolve()

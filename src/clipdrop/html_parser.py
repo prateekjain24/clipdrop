@@ -6,14 +6,78 @@ and preparing content for PDF generation.
 
 import base64
 import io
+import ipaddress
 import re
+import socket
 import subprocess
+import warnings
 from typing import List, Optional, Tuple, Any, Dict
+from urllib.parse import urlparse
 
 import html2text
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 from PIL import Image
+
+
+# Cap on bytes fetched/decoded for a single remote image (defense-in-depth
+# against decompression bombs and oversized downloads).
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
+
+
+def _safe_open_image(data: bytes) -> Optional[Image.Image]:
+    """Open image bytes, refusing decompression bombs and malformed data.
+
+    Pillow only *warns* between MAX_IMAGE_PIXELS and 2x; promote that to an
+    error so untrusted images can't exhaust memory.
+    """
+    if not data or len(data) > MAX_IMAGE_BYTES:
+        return None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            image = Image.open(io.BytesIO(data))
+            image.load()  # force decode so bomb/format checks actually run
+            return image
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning, OSError, ValueError):
+        return None
+
+
+def _is_safe_public_url(url: str) -> bool:
+    """Return True only for http(s) URLs that resolve to a public IP.
+
+    Blocks SSRF vectors: non-http(s) schemes and private / loopback /
+    link-local / reserved / multicast addresses (incl. cloud metadata
+    endpoints like 169.254.169.254).
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+
+    try:
+        # Resolve every address the host maps to (A + AAAA) and require all
+        # of them to be public, to defend against DNS-rebinding tricks.
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+    except (socket.gaierror, UnicodeError, ValueError):
+        return False
+
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
 
 
 
@@ -106,13 +170,14 @@ def parse_html_content(html: str) -> Tuple[str, List[dict]]:
     return text, images
 
 
-def parse_html_content_ordered(html: str) -> List[Tuple[str, Any]]:
+def parse_html_content_ordered(html: str, allow_remote: bool = False) -> List[Tuple[str, Any]]:
     """
     Parse HTML content and extract ordered chunks of text and images.
     Preserves formatting using Markdown.
 
     Args:
         html: HTML string to parse
+        allow_remote: Whether to fetch remote (http/https) images
 
     Returns:
         List of (type, content) tuples in document order
@@ -179,9 +244,9 @@ def parse_html_content_ordered(html: str) -> List[Tuple[str, Any]]:
             if src.startswith('data:image'):
                 img_data = extract_base64_image(src)
             elif src.startswith(('http://', 'https://')):
-                img_data = download_image(src)
+                img_data = download_image(src, allow_remote=allow_remote)
             elif src.startswith('//'):
-                img_data = download_image('https:' + src)
+                img_data = download_image('https:' + src, allow_remote=allow_remote)
 
             if img_data:
                 chunks.append(('image', img_data))
@@ -216,33 +281,38 @@ def extract_base64_image(data_url: str) -> Optional[Image.Image]:
     try:
         # Format: data:image/png;base64,[base64_data]
         if ',' in data_url:
-            header, base64_data = data_url.split(',', 1)
-
-            # Decode base64
+            _, base64_data = data_url.split(',', 1)
             image_data = base64.b64decode(base64_data)
-
-            # Create PIL Image
-            image = Image.open(io.BytesIO(image_data))
-            return image
-    except Exception:
+            return _safe_open_image(image_data)
+    except (ValueError, base64.binascii.Error):
         pass
 
     return None
 
 
-def download_image(url: str, timeout: int = 5) -> Optional[Image.Image]:
+def download_image(url: str, timeout: int = 5, allow_remote: bool = False) -> Optional[Image.Image]:
     """
-    Download image from URL.
+    Download an image from a remote URL.
+
+    Remote fetching is opt-in: by default this returns ``None`` so ClipDrop
+    never silently reaches out to the network (privacy) or to internal hosts
+    (SSRF). When enabled, only public http(s) URLs are fetched.
 
     Args:
         url: Image URL to download
         timeout: Request timeout in seconds
+        allow_remote: Must be True to actually perform the network request
 
     Returns:
-        PIL Image object or None if download fails
+        PIL Image object or None if fetching is disabled/unsafe/fails
     """
+    if not allow_remote:
+        return None
+
+    if not _is_safe_public_url(url):
+        return None
+
     try:
-        # Set headers to appear as a browser
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
         }
@@ -250,27 +320,30 @@ def download_image(url: str, timeout: int = 5) -> Optional[Image.Image]:
         response = requests.get(url, headers=headers, timeout=timeout, stream=True)
         response.raise_for_status()
 
-        # Check content type
         content_type = response.headers.get('Content-Type', '')
         if not content_type.startswith('image/'):
             return None
 
-        # Create PIL Image from response content
-        image = Image.open(io.BytesIO(response.content))
-        return image
+        # Bound the amount we read to guard against oversized payloads.
+        chunks = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            chunks.extend(chunk)
+            if len(chunks) > MAX_IMAGE_BYTES:
+                return None
+
+        return _safe_open_image(bytes(chunks))
 
     except (requests.RequestException, IOError):
-        pass
-
-    return None
+        return None
 
 
-def process_html_images(images: List[dict]) -> List[Image.Image]:
+def process_html_images(images: List[dict], allow_remote: bool = False) -> List[Image.Image]:
     """
     Process list of image info and return PIL Image objects.
 
     Args:
         images: List of image info dictionaries
+        allow_remote: Whether to fetch remote (http/https) images
 
     Returns:
         List of PIL Image objects
@@ -285,7 +358,7 @@ def process_html_images(images: List[dict]) -> List[Image.Image]:
             pil_image = img_info['data']
         elif img_info['type'] == 'url' and img_info.get('src'):
             # Download the image
-            pil_image = download_image(img_info['src'])
+            pil_image = download_image(img_info['src'], allow_remote=allow_remote)
 
         if pil_image:
             processed_images.append(pil_image)
@@ -293,12 +366,13 @@ def process_html_images(images: List[dict]) -> List[Image.Image]:
     return processed_images
 
 
-def extract_content_from_html(html: str) -> Tuple[str, List[Image.Image]]:
+def extract_content_from_html(html: str, allow_remote: bool = False) -> Tuple[str, List[Image.Image]]:
     """
     Main function to extract text and images from HTML clipboard content.
 
     Args:
         html: HTML string from clipboard
+        allow_remote: Whether to fetch remote (http/https) images
 
     Returns:
         Tuple of (text content, list of PIL Image objects)
@@ -310,7 +384,7 @@ def extract_content_from_html(html: str) -> Tuple[str, List[Image.Image]]:
     text, image_infos = parse_html_content(html)
 
     # Process images
-    images = process_html_images(image_infos)
+    images = process_html_images(image_infos, allow_remote=allow_remote)
 
     return text, images
 
@@ -341,7 +415,7 @@ def get_html_with_images() -> Optional[Tuple[str, str, List[Image.Image]]]:
     return html, text, images
 
 
-def parse_html_content_enhanced(html: str) -> List[Tuple[str, Any, Dict]]:
+def parse_html_content_enhanced(html: str, allow_remote: bool = False) -> List[Tuple[str, Any, Dict]]:
     """
     Enhanced HTML parsing that preserves more structure and formatting.
     Specifically optimized for educational content.
@@ -456,9 +530,9 @@ def parse_html_content_enhanced(html: str) -> List[Tuple[str, Any, Dict]]:
                 if src.startswith('data:image'):
                     img_data = extract_base64_image(src)
                 elif src.startswith(('http://', 'https://')):
-                    img_data = download_image(src)
+                    img_data = download_image(src, allow_remote=allow_remote)
                 elif src.startswith('//'):
-                    img_data = download_image('https:' + src)
+                    img_data = download_image('https:' + src, allow_remote=allow_remote)
 
                 if img_data:
                     element_chunks.append(('image', img_data, {'alt': alt, 'depth': depth}))

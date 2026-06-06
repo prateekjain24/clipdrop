@@ -929,6 +929,13 @@ def main(
         help="Turn clipboard text into a table (on-device). Saves Markdown by "
              "default, or CSV when the filename ends in .csv",
     ),
+    fetch_remote_images: bool = typer.Option(
+        False,
+        "--fetch-remote-images",
+        help="When building a PDF from copied web content, download remote "
+             "(http/https) images. Off by default for privacy; embedded "
+             "(data:) images are always included",
+    ),
     youtube: bool = typer.Option(
         False,
         "--youtube",
@@ -1084,7 +1091,9 @@ def main(
             if html_content:
                 # Try enhanced parsing first for better structure preservation
                 try:
-                    enhanced_chunks = html_parser.parse_html_content_enhanced(html_content)
+                    enhanced_chunks = html_parser.parse_html_content_enhanced(
+                        html_content, allow_remote=fetch_remote_images
+                    )
                     use_enhanced = len(enhanced_chunks) > 0
                 except Exception:
                     # Fall back to standard parsing
@@ -1145,7 +1154,9 @@ def main(
 
                 else:
                     # Fall back to standard ordered parsing
-                    ordered_chunks = html_parser.parse_html_content_ordered(html_content)
+                    ordered_chunks = html_parser.parse_html_content_ordered(
+                        html_content, allow_remote=fetch_remote_images
+                    )
 
                     if ordered_chunks:
                         file_path = Path(filename)

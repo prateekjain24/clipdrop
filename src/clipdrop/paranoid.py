@@ -104,7 +104,8 @@ def mask_value(raw: str) -> str:
 
     prefix = raw[:4]
     suffix = raw[-2:] if len(raw) > 6 else ""
-    sha1_stub = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]
+    # Non-security digest: a short, stable identifier for masked output only.
+    sha1_stub = hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:6]
     ellipsis = "…" if suffix else ""
     return f"{prefix}{ellipsis}{suffix} (sha1: {sha1_stub})"
 
