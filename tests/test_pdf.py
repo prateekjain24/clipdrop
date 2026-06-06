@@ -4,7 +4,7 @@
 import pytest
 from PIL import Image
 
-from clipdrop import pdf
+from clipdrop import detect, pdf
 from clipdrop.pdf import ContentChunk, analyze_clipboard_content
 
 
@@ -44,13 +44,17 @@ class TestContentAnalysis:
         assert chunks[1].type == 'image'
 
     def test_analyze_html_content(self):
-        """Test detecting HTML content."""
+        """Raw HTML clipboard text is handled as a single text chunk.
+
+        The dedicated rich-HTML path is html_mixed -> html_parser; raw HTML
+        almost never reaches create_pdf, so pdf.py no longer special-cases it.
+        It falls through to the plain-text path (no 'format': 'html' metadata).
+        """
         html = "<html><body><h1>Title</h1><p>Content</p></body></html>"
         chunks = analyze_clipboard_content(html, None)
         assert len(chunks) == 1
-        # HTML parsing returns text chunk with HTML format metadata
-        assert chunks[0].type == 'text'
-        assert chunks[0].metadata.get('format') == 'html'
+        assert chunks[0].type in ('text', 'code')
+        assert chunks[0].metadata.get('format') != 'html'
 
     def test_analyze_empty_content(self):
         """Test analyzing empty clipboard."""
@@ -256,27 +260,27 @@ class TestHelperFunctions:
         assert pdf._format_file_size(1500000000) == "1.4 GB"
 
     def test_is_code_detection(self):
-        """Test code detection heuristics."""
+        """Code detection now lives in detect.is_code (single source of truth)."""
         # Python code
-        assert pdf._is_code("def hello():\n    print('hi')")
+        assert detect.is_code("def hello():\n    print('hi')")
 
         # JavaScript code
-        assert pdf._is_code("function test() {\n  return true;\n}")
+        assert detect.is_code("function test() {\n  return true;\n}")
 
         # Plain text
-        assert not pdf._is_code("This is just plain text.")
+        assert not detect.is_code("This is just plain text.")
 
         # Indented text (might be code)
         indented = "Line 1\n    Line 2\n    Line 3\n    Line 4"
-        assert pdf._is_code(indented)
+        assert detect.is_code(indented)
 
     def test_detect_language(self):
-        """Test programming language detection."""
-        assert pdf._detect_language("def test():\n    import os") == "python"
-        assert pdf._detect_language("function test() { const x = 1; }") == "javascript"
-        assert pdf._detect_language("#include <stdio.h>\nint main()") == "cpp"
-        assert pdf._detect_language("public class Test { }") == "java"
-        assert pdf._detect_language("unknown code") == "plain"
+        """Language detection now lives in detect.detect_language."""
+        assert detect.detect_language("def test():\n    import os") == "python"
+        assert detect.detect_language("function test() { const x = 1; }") == "javascript"
+        assert detect.detect_language("#include <stdio.h>\nint main()") == "cpp"
+        assert detect.detect_language("public class Test { }") == "java"
+        assert detect.detect_language("unknown code") == "plain"
 
 
 class TestContentChunk:

@@ -245,20 +245,9 @@ Combine the following section summaries into a single concise paragraph that cap
                         )
                     )
                 } catch let failure as SummarizationFailure {
-                    if failure.message == placeholderMessage {
-                        // Use fallback for this batch
-                        let fallbackBatchSummary = fallbackSummary(fromChunks: Array(batch), targetSentences: 2, note: nil)
-                        intermediateSummaries.append(
-                            ChunkSummary(
-                                id: "batch-\(batchIndex)",
-                                index: batchIndex,
-                                summary: fallbackBatchSummary
-                            )
-                        )
-                        warnings.append("Batch \(batchIndex + 1) used fallback summarization")
-                        continue
-                    }
-
+                    // No heuristic substitute here: propagate the failure so the
+                    // Python caller applies its single local fallback
+                    // (generate_fallback_summary) over the original source.
                     stageResults.append(StageResult(stage: "intermediate_aggregation", status: "error", processed: batchIndex, progress: 75))
                     throw SummarizationFailure(
                         message: failure.message,
@@ -306,25 +295,9 @@ Combine the following section summaries into a single concise paragraph that cap
             )
             finalSummary = renderMarkdown(structured, note: nil)
         } catch let failure as SummarizationFailure {
-            if failure.message == placeholderMessage || failure.message == "Content too long for processing" {
-                let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences, note: "Fallback summary generated due to unavailable model output")
-                let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
-                warnings.append("Aggregation used fallback summarization")
-                stageResults.append(StageResult(stage: "aggregation", status: "fallback", processed: nil, progress: 100))
-                return SummaryResult(
-                    success: true,
-                    summary: fallback,
-                    error: nil,
-                    retryable: nil,
-                    stage: nil,
-                    warnings: warnings,
-                    stageResults: stageResults,
-                    mode: request.mode ?? "chunked",
-                    version: request.version ?? "1.0",
-                    elapsedMs: elapsedMs
-                )
-            }
-
+            // No heuristic substitute here: propagate the failure so the Python
+            // caller applies its single local fallback (generate_fallback_summary)
+            // over the original source. This keeps one fallback path end to end.
             stageResults.append(StageResult(stage: "aggregation", status: "error", processed: nil, progress: 90))
             throw SummarizationFailure(
                 message: failure.message,
@@ -475,67 +448,13 @@ Section summaries:
         return patterns.contains { lowered.contains($0) }
     }
 
+    // Chunk-level resilience: lets one bad chunk degrade gracefully so the model
+    // can still aggregate the rest. (Aggregate-level fallback was removed — that
+    // is now the Python caller's single responsibility.)
     private static func fallbackChunkTakeaway(from text: String) -> String {
         let sentences = splitSentences(from: text)
         let excerpt = sentences.prefix(2)
         return excerpt.joined(separator: " ")
-    }
-
-    private static func fallbackSummary(from text: String, targetSentences: Int, note: String? = nil) -> String {
-        let components = analyzeSentences(for: text, takeawaysLimit: 3)
-        return buildStructuredSummary(
-            overall: components.overall,
-            takeaways: components.takeaways,
-            actionItems: components.actionItems,
-            questions: components.questions,
-            note: note
-        )
-    }
-
-    private static func fallbackSummary(fromChunks chunks: [ChunkSummary], targetSentences: Int, note: String? = nil) -> String {
-        let combined = chunks.sorted { $0.index < $1.index }
-            .map { $0.summary }
-            .joined(separator: " ")
-        return fallbackSummary(from: combined, targetSentences: targetSentences, note: note)
-    }
-
-    private static func analyzeSentences(for text: String, takeawaysLimit: Int) -> (overall: String, takeaways: [String], actionItems: [String], questions: [String]) {
-        let sentences = splitSentences(from: text)
-        guard let first = sentences.first else {
-            return (
-                overall: text.trimmingCharacters(in: .whitespacesAndNewlines),
-                takeaways: [],
-                actionItems: [],
-                questions: []
-            )
-        }
-
-        var remaining = Array(sentences.dropFirst())
-
-        var questions = remaining.filter { $0.contains("?") }
-        questions = Array(questions.prefix(3))
-        remaining.removeAll { questions.contains($0) }
-
-        let actionKeywords = [" should ", " need to ", " must ", " will ", " plan to ", " ensure ", " follow up", " schedule ", " consider ", " review "]
-        var actions: [String] = []
-        for sentence in remaining {
-            if actionKeywords.contains(where: { sentence.lowercased().contains($0) }) {
-                actions.append(sentence)
-            }
-            if actions.count == 3 {
-                break
-            }
-        }
-        remaining.removeAll { actions.contains($0) }
-
-        let takeaways = Array(remaining.prefix(takeawaysLimit))
-
-        return (
-            overall: first,
-            takeaways: takeaways,
-            actionItems: actions,
-            questions: questions
-        )
     }
 
     private static func buildStructuredSummary(

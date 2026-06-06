@@ -30,6 +30,10 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
 
     # Heuristic filter to avoid passing obvious code snippets.
     # Use strong indicators only - be forgiving to allow technical text.
+    # NOTE: this gate is intentionally MORE conservative than is_code() below
+    # (see commit 79bc3f7 - technical prose must not be misclassified as code).
+    # is_code() is the aggressive block-styling detector used by pdf.py; the two
+    # are deliberately separate heuristics for different purposes.
     lowered = content.lower()
     code_keywords = (
         "def ",
@@ -63,6 +67,63 @@ def is_summarizable_content(content: str, detected_format: str) -> tuple[bool, s
 
     # Future: fall back to multi-stage chunking for very long but primarily textual content.
     return False, "Content not suitable for summarization"
+
+
+def is_code(text: str) -> bool:
+    """Detect whether text appears to be source code.
+
+    This is the single source of truth for code detection used to choose how a
+    chunk is rendered in a PDF (monospace/boxed vs. paragraph). It is the union
+    of the heuristics that previously lived in pdf.py and is intentionally
+    aggressive — a single strong keyword, a structural token, or heavy
+    indentation is enough. The summarizer gate (is_summarizable_content) keeps a
+    separate, more conservative heuristic on purpose.
+    """
+    if not text:
+        return False
+
+    # Indentation pattern: >30% of lines indented suggests code.
+    lines = text.split("\n")
+    if len(lines) > 1:
+        indented = sum(1 for line in lines if line.startswith(("    ", "\t")))
+        if indented > len(lines) * 0.3:
+            return True
+
+    # Common code keywords across Python / JavaScript / C-C++ / Java.
+    code_indicators = (
+        "def ", "class ", "import ", "from ",  # Python
+        "function ", "const ", "let ", "var ",  # JavaScript
+        "#include", "int main", "void ",  # C/C++
+        "public class", "private ", "package ",  # Java
+    )
+    text_lower = text.lower()
+    if any(indicator in text_lower for indicator in code_indicators):
+        return True
+
+    # Structural tokens / fenced code blocks.
+    if "```" in text or "</code>" in text_lower:
+        return True
+    if any(token in text for token in ("{", "};", "=>", "#include")):
+        return True
+
+    return False
+
+
+def detect_language(text: str) -> str:
+    """Detect the programming language of code text (best-effort heuristic).
+
+    Returns one of: 'python', 'javascript', 'cpp', 'java', 'plain'.
+    """
+    if "def " in text or "import " in text or "print(" in text:
+        return "python"
+    elif "function" in text or "const " in text or "===" in text:
+        return "javascript"
+    elif "#include" in text or "int main" in text:
+        return "cpp"
+    elif "public class" in text or "package " in text:
+        return "java"
+    else:
+        return "plain"
 
 
 def is_json(content: str) -> bool:
