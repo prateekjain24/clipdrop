@@ -1,4 +1,7 @@
 import json
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,22 @@ from clipdrop.macos_ai import (
 )
 
 runner = CliRunner()
+
+
+@contextmanager
+def isolated_filesystem():
+    """Run a block inside a fresh temp directory.
+
+    Drop-in replacement for ``CliRunner.isolated_filesystem``, which was
+    removed in Click 8.4 (pulled in via Typer).
+    """
+    cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        try:
+            yield Path(tmp)
+        finally:
+            os.chdir(cwd)
 
 
 def test_is_summarizable_content_allows_text():
@@ -141,7 +160,7 @@ def test_cli_summarize_appends_summary(monkeypatch):
         lambda _content: SummaryResult(success=True, summary=summary_text),
     )
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["notes", "--summarize"])
         assert result.exit_code == 0
 
@@ -160,7 +179,7 @@ def test_cli_summarize_handles_failure(monkeypatch):
         lambda _content: SummaryResult(success=False, error="helper unavailable"),
     )
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["report", "--summarize"])
         assert result.exit_code == 0
 
@@ -208,7 +227,7 @@ def test_cli_summarize_long_content_uses_chunking(monkeypatch):
         lambda _content, _format: (False, detect.SINGLE_PASS_LIMIT_REASON),
     )
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["scroll", "--summarize"])
         assert result.exit_code == 0
 
@@ -262,7 +281,7 @@ def test_cli_chunking_stage_output(monkeypatch, tmp_path):
         lambda max_chars=200: long_content[:max_chars],
     )
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["chunked", "--summarize"])
         assert result.exit_code == 0
 
@@ -310,7 +329,7 @@ def test_cli_chunking_failure_reports_stage(monkeypatch):
         lambda max_chars=200: long_content[:max_chars],
     )
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["chunked-fail", "--summarize"])
         assert result.exit_code == 0
         stdout = result.stdout
@@ -352,7 +371,7 @@ def test_youtube_summarize_adds_structured_summary(monkeypatch, tmp_path):
     monkeypatch.setattr("clipdrop.main.summarize_content_with_chunking", lambda *_, **__: pytest.fail("chunking not expected"))
     monkeypatch.setattr("clipdrop.detect.is_summarizable_content", lambda _content, _format: (True, ""))
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, ["--youtube", "--summarize"])
         assert result.exit_code == 0
         saved = Path("Test Video.srt").read_text(encoding="utf-8")
