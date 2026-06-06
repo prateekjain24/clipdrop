@@ -1,7 +1,6 @@
 import json
 
 from clipdrop.chunking import build_chunked_request, create_semantic_chunks
-from clipdrop.macos_ai import summarize_content_with_chunking
 
 
 def test_create_semantic_chunks_respects_limits():

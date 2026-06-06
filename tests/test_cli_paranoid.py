@@ -1,3 +1,6 @@
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -7,6 +10,22 @@ from clipdrop.main import app
 
 
 runner = CliRunner()
+
+
+@contextmanager
+def isolated_filesystem():
+    """Run a block inside a fresh temp directory.
+
+    Drop-in replacement for ``CliRunner.isolated_filesystem``, which was
+    removed in Click 8.4 (pulled in via Typer).
+    """
+    cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        try:
+            yield Path(tmp)
+        finally:
+            os.chdir(cwd)
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +50,7 @@ def mock_clipboard(monkeypatch):
 def test_cli_paranoid_redact():
     filename = "data.json"
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, [filename, "--scan-mode", "redact"])
 
         assert result.exit_code == 0
@@ -43,7 +62,7 @@ def test_cli_paranoid_redact():
 def test_cli_paranoid_block():
     filename = "secrets.txt"
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, [filename, "--scan-mode", "block"])
 
         assert result.exit_code == 17
@@ -53,7 +72,7 @@ def test_cli_paranoid_block():
 def test_cli_paranoid_prompt_yes():
     filename = "notes.txt"
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, [filename, "-s", "--yes"])
 
         assert result.exit_code == 0
@@ -65,7 +84,7 @@ def test_cli_paranoid_prompt_yes():
 def test_cli_paranoid_warn():
     filename = "warn.txt"
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         result = runner.invoke(app, [filename, "--scan-mode", "warn"])
 
         assert result.exit_code == 0
