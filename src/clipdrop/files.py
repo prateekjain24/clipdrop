@@ -232,6 +232,29 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+def slugify(text: str, max_words: int = 6, max_len: int = 40) -> str:
+    """Turn arbitrary text into a lowercase, hyphenated, filesystem-safe slug.
+
+    Args:
+        text: Source text (e.g. an AI-suggested title or raw content).
+        max_words: Maximum number of words to keep.
+        max_len: Maximum length of the resulting slug.
+
+    Returns:
+        A slug like ``q3-roadmap-planning`` (empty string if nothing usable).
+    """
+    import re
+
+    words = re.findall(r"[A-Za-z0-9]+", text.lower())
+    if not words:
+        return ""
+
+    slug = "-".join(words[:max_words])
+    if len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-")
+    return slug
+
+
 def append_text_to_file(path: Union[Path, str], content: str, separator: Optional[str] = None) -> int:
     """
     Append text content to an existing file or create new if doesn't exist.

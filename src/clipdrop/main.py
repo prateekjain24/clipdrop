@@ -399,6 +399,38 @@ def add_chapter_markers(content: str, chapters: Optional[list], format: str) -> 
     return chapter_text + content
 
 
+def generate_auto_filename(content: Optional[str], provided_filename: Optional[str]) -> Optional[str]:
+    """Build a descriptive filename from content for --auto-name.
+
+    Uses the on-device model for the title when available, falling back to a
+    heuristic slug of the content. A provided extension is honored; otherwise
+    the extension is chosen by format detection.
+
+    Returns the full filename, or None if no usable name could be derived.
+    """
+    base = (content or "").strip()
+    if not base:
+        return None
+
+    title = None
+    try:
+        from clipdrop.macos_ai import suggest_filename as ai_suggest
+        title = ai_suggest(base)
+    except Exception:
+        title = None
+
+    stem = files.slugify(title) if title else ""
+    if not stem:
+        # Fall back to a heuristic slug derived from the content itself.
+        stem = files.slugify(base)
+    if not stem:
+        return None
+
+    provided_ext = Path(provided_filename).suffix if provided_filename else ""
+    ext = provided_ext or f".{detect.detect_format(content)}"
+    return f"{stem}{ext}"
+
+
 def version_callback(value: bool):
     """Handle --version flag."""
     if value:
@@ -823,6 +855,12 @@ def main(
         "-S",
         help="Generate an on-device summary and append it to saved text",
     ),
+    auto_name: bool = typer.Option(
+        False,
+        "--auto-name",
+        help="Let ClipDrop name the file from its content (on-device). "
+             "A provided extension is kept; the filename can be omitted entirely",
+    ),
     youtube: bool = typer.Option(
         False,
         "--youtube",
@@ -947,7 +985,8 @@ def main(
         pass  # Not on macOS or helper not available
 
     # If no filename provided and no audio detected, show help
-    if filename is None:
+    # (unless --auto-name will derive one from the content later)
+    if filename is None and not auto_name:
         console.print("\n[red]📝 Please provide a filename[/red]")
         console.print("[yellow]Usage: clipdrop [OPTIONS] FILENAME[/yellow]")
         console.print("\n[dim]Examples:[/dim]")
@@ -1121,6 +1160,17 @@ def main(
             content = recognized
             image = None
             content_type = 'text'
+
+        # Auto-name the file from its content when requested
+        if auto_name:
+            generated = generate_auto_filename(content, filename)
+            if generated:
+                filename = generated
+                console.print(f"[cyan]🏷️  Auto-named file: {filename}[/cyan]")
+            elif filename is None:
+                console.print("[red]❌ Could not auto-name: no text content to derive a name from.[/red]")
+                console.print("[dim]Provide a filename, or combine --auto-name with text/--ocr content.[/dim]")
+                raise typer.Exit(1)
 
         # Handle append mode - force text-only
         if append:
