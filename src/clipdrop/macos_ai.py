@@ -37,6 +37,11 @@ class SummarizationNotAvailableError(Exception):
     pass
 
 
+class OCRNotAvailableError(Exception):
+    """Raised when the OCR helper cannot be used."""
+    pass
+
+
 def get_macos_version() -> Optional[tuple[int, int]]:
     """Get macOS version as (major, minor) tuple, or None if not macOS."""
     if platform.system() != "Darwin":
@@ -108,6 +113,79 @@ def get_swift_helper_path(helper_name: str) -> Path:
         )
 
     return helper_path
+
+
+def get_ocr_helper_path() -> Path:
+    """Return path to the packaged Vision OCR helper binary.
+
+    Raises:
+        OCRNotAvailableError: If not on macOS or the helper is missing.
+    """
+    if platform.system() != "Darwin":
+        raise OCRNotAvailableError(
+            "On-device OCR is only available on macOS. "
+            f"Current platform: {platform.system()}"
+        )
+
+    helper = files("clipdrop").joinpath("bin/clipdrop-ocr")
+    if not helper.exists():
+        raise OCRNotAvailableError(
+            "clipdrop-ocr helper not found. Please rebuild with scripts/build_swift.sh."
+        )
+
+    return Path(str(helper))
+
+
+def ocr_image(image: Any, lang: Optional[str] = None, timeout: int = 30) -> str:
+    """Run on-device OCR on a PIL image and return the recognized text.
+
+    Args:
+        image: A PIL ``Image.Image`` to recognize text from.
+        lang: Optional comma-separated BCP-47 language hints (e.g. ``en-US``).
+        timeout: Seconds to wait for the helper before giving up.
+
+    Returns:
+        The recognized text, or an empty string if no text was detected.
+
+    Raises:
+        OCRNotAvailableError: If the helper is unavailable (e.g. not macOS).
+        RuntimeError: If the helper fails unexpectedly.
+    """
+    helper = get_ocr_helper_path()  # raises OCRNotAvailableError
+
+    import tempfile
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+
+    try:
+        image.save(tmp_path, format="PNG")
+
+        args = [str(helper), str(tmp_path)]
+        if lang:
+            args.extend(["--lang", lang])
+
+        try:
+            proc = subprocess.run(  # noqa: S603 - controlled arguments
+                args,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("OCR timed out")
+
+        if proc.returncode == 1:
+            # Helper ran fine but found no text.
+            return ""
+        if proc.returncode != 0:
+            message = (proc.stderr or "").strip() or f"OCR helper exited with code {proc.returncode}"
+            raise RuntimeError(message)
+
+        return (proc.stdout or "").strip()
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def transcribe_from_clipboard(lang: str | None = None) -> list[dict[str, Any]]:

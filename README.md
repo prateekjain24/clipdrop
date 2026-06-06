@@ -211,9 +211,14 @@ clipdrop --audio        # Force audio transcription
 ```bash
 clipdrop --text-only    # Ignore images
 clipdrop --image-only   # Ignore text
+clipdrop --ocr          # Extract text from a clipboard image (macOS, on-device)
 clipdrop -s             # Scan for secrets
 clipdrop --lang es      # Set language
 ```
+
+> 🔎 **OCR** turns a copied screenshot into text using Apple's on-device Vision
+> framework — no data leaves your Mac. It composes with other flags, e.g.
+> `clipdrop slide.md --ocr --summarize`.
 
 [📚 **Full Command Documentation →**](./usage.md)
 

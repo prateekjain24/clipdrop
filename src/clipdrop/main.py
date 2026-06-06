@@ -795,6 +795,13 @@ def main(
         "--image-only",
         help="Save only image content, ignore text in clipboard"
     ),
+    ocr: bool = typer.Option(
+        False,
+        "--ocr",
+        help="Extract text from a clipboard image using on-device OCR "
+             "(macOS) and save it as text. Composes with --summarize and "
+             "secret scanning. Use --lang for recognition hints (e.g. en-US)"
+    ),
     lang: Optional[str] = typer.Option(
         None,
         "--lang",
@@ -1086,6 +1093,34 @@ def main(
         # Get both text and image content (may be None)
         content = clipboard.get_text()
         image = clipboard.get_image()
+
+        # OCR mode - extract text from a clipboard image and treat it as text
+        if ocr:
+            if image is None:
+                console.print("[red]❌ No image in clipboard to run OCR on.[/red]")
+                console.print("[dim]Copy a screenshot or image, then try again.[/dim]")
+                raise typer.Exit(1)
+
+            from clipdrop.macos_ai import ocr_image, OCRNotAvailableError
+
+            console.print("[cyan]🔎 Extracting text from image (on-device OCR)...[/cyan]")
+            try:
+                recognized = ocr_image(image, lang=lang)
+            except OCRNotAvailableError as exc:
+                console.print(f"[red]❌ {exc}[/red]")
+                raise typer.Exit(2)
+            except RuntimeError as exc:
+                console.print(f"[red]❌ OCR failed: {exc}[/red]")
+                raise typer.Exit(1)
+
+            if not recognized.strip():
+                console.print("[yellow]⚠️  No text detected in image[/yellow]")
+                raise typer.Exit(1)
+
+            console.print(f"[green]✓ Extracted {len(recognized)} characters[/green]")
+            content = recognized
+            image = None
+            content_type = 'text'
 
         # Handle append mode - force text-only
         if append:
