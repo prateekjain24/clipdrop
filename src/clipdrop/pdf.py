@@ -19,6 +19,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.platypus import Image as RLImage
 
+from . import detect
 from .exceptions import FileWriteError
 
 
@@ -48,101 +49,24 @@ def analyze_clipboard_content(text: Optional[str], image: Optional[Image.Image])
     """
     chunks = []
 
-    # Check for HTML content (richest format)
-    if text and text.strip().startswith('<') and '<html' in text.lower():
-        # Parse HTML to extract structure
-        chunks.extend(_parse_html_content(text))
+    # Text and image are handled in their original order. Code is detected via
+    # the single source of truth in detect.py so it renders monospace/boxed.
+    # (Raw HTML/RTF clipboard payloads do not reach here: the rich-HTML path is
+    # html_mixed -> html_parser, and clipboard.get_text() returns plain text.)
+    if text:
+        if detect.is_code(text):
+            chunks.append(ContentChunk('code', text, {'language': detect.detect_language(text)}))
+        else:
+            chunks.append(ContentChunk('text', text))
 
-    # Check for RTF content
-    elif text and text.strip().startswith('{\\rtf'):
-        # Parse RTF to extract structure
-        chunks.extend(_parse_rtf_content(text))
-
-    # Handle separate text and image
-    else:
-        if text:
-            # Detect if it's code
-            if _is_code(text):
-                chunks.append(ContentChunk('code', text, {'language': _detect_language(text)}))
-            else:
-                chunks.append(ContentChunk('text', text))
-
-        if image:
-            chunks.append(ContentChunk('image', image, {
-                'width': image.width,
-                'height': image.height,
-                'mode': image.mode
-            }))
+    if image:
+        chunks.append(ContentChunk('image', image, {
+            'width': image.width,
+            'height': image.height,
+            'mode': image.mode
+        }))
 
     return chunks
-
-
-def _parse_html_content(html: str) -> List[ContentChunk]:
-    """Parse HTML content and extract ordered chunks."""
-    # Simplified HTML parsing - in production would use BeautifulSoup
-    chunks = []
-
-    # For now, just treat as formatted text
-    # TODO: Implement proper HTML parsing with embedded images
-    import re
-    text = re.sub('<[^<]+?>', '', html)  # Strip HTML tags
-    if text.strip():
-        chunks.append(ContentChunk('text', text.strip(), {'format': 'html'}))
-
-    return chunks
-
-
-def _parse_rtf_content(rtf: str) -> List[ContentChunk]:
-    """Parse RTF content and extract ordered chunks."""
-    # Simplified RTF parsing
-    chunks = []
-
-    # For now, just extract plain text
-    # TODO: Implement proper RTF parsing with formatting
-    import re
-    text = re.sub(r'\\[a-z]+\d*\s?', '', rtf)  # Remove RTF commands
-    text = text.replace('{', '').replace('}', '')
-    if text.strip():
-        chunks.append(ContentChunk('text', text.strip(), {'format': 'rtf'}))
-
-    return chunks
-
-
-def _is_code(text: str) -> bool:
-    """Detect if text appears to be code."""
-    code_indicators = [
-        'def ', 'class ', 'import ', 'from ',  # Python
-        'function ', 'const ', 'let ', 'var ',  # JavaScript
-        '#include', 'int main', 'void ',  # C/C++
-        'public class', 'private ', 'package ',  # Java
-    ]
-
-    # Check for common code patterns
-    lines = text.split('\n')
-    if len(lines) > 1:
-        # Check for indentation patterns
-        indented = sum(1 for line in lines if line.startswith(('    ', '\t')))
-        if indented > len(lines) * 0.3:  # 30% of lines are indented
-            return True
-
-    # Check for code keywords
-    text_lower = text.lower()
-    return any(indicator in text_lower for indicator in code_indicators)
-
-
-def _detect_language(text: str) -> str:
-    """Detect programming language from code text."""
-    # Simple heuristic-based detection
-    if 'def ' in text or 'import ' in text or 'print(' in text:
-        return 'python'
-    elif 'function' in text or 'const ' in text or '===' in text:
-        return 'javascript'
-    elif '#include' in text or 'int main' in text:
-        return 'cpp'
-    elif 'public class' in text or 'package ' in text:
-        return 'java'
-    else:
-        return 'plain'
 
 
 def create_pdf_from_text(
