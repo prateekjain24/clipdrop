@@ -5,6 +5,23 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-06
+
+### ✨ On-Device Image OCR
+
+### Added
+- **`--ocr` flag** - extract text from a clipboard image using Apple's Vision framework (`VNRecognizeTextRequest`), fully on-device
+  - Recognized text is routed through the normal text-save pipeline, so it composes with `--summarize`, `--scan`, `--preview`, and append
+  - Optional language hints supported by the underlying helper
+  - New Swift helper `clipdrop-ocr` (universal arm64+x86_64, macOS 13+)
+
+### Technical
+- `macos_ai`: `get_ocr_helper_path()` + `ocr_image()` (writes a temp PNG, invokes the helper, returns text; raises `OCRNotAvailableError` off-macOS or when the helper is missing)
+- `build_swift.sh` builds the new helper; the binary ships in the wheel via hatch's VCS file inclusion
+- 10 new Python tests covering helper invocation, language hint, no-text/error paths, temp cleanup, and CLI behavior
+
+---
+
 ## [1.7.0] - 2026-06-06
 
 ### ✨ Guided Generation for On-Device Summaries
