@@ -5,6 +5,23 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-06-06
+
+### ✨ Guided Generation for On-Device Summaries
+
+### Changed
+- **Summarizer now uses Foundation Models guided generation** - the on-device model is constrained to a typed `StructuredSummary` (`overall`, `keyTakeaways`, `actionItems`, `questions`) via `@Generable`/`@Guide`, instead of being asked to format free-form Markdown
+  - Structure is now guaranteed by the schema; the model never sees a format spec
+  - Single-pass and final chunk aggregation generate structured output; chunk-level and intermediate aggregation remain string-based
+  - Dropped brittle placeholder-string detection on the structured paths; the local fallback summary still covers model-unavailable/generation errors
+
+### Technical
+- Saved-file Markdown output is byte-identical (rendered via the shared `buildStructuredSummary`)
+- Helper JSON contract (`{success, summary, warnings, stage_results}`) unchanged, so the Python glue and tests are unaffected
+- Rebuilt the `clipdrop-summarize` universal helper binary (macOS 26 + Xcode 26.5, Swift 6.3.2)
+
+---
+
 ## [1.6.6] - 2025-10-01
 
 ### 🚀 Long-Form Content Summarization

@@ -3,27 +3,18 @@ import FoundationModels
 
 @main
 struct ClipdropSummarizeApp {
-    private static let defaultInstructions = """
-You are an expert summarization assistant. Produce a Markdown summary that starts with a single sentence titled **Overall** capturing the core message. Follow with three sections using Markdown headings:
-- **Key Takeaways** — up to three bullet points highlighting the most important insights.
-- **Action Items** — up to three bullet points focused on next steps (write "- None" if there are no clear actions).
-- **Questions** — up to three bullet points flagging open issues or uncertainties (write "- None" if there are no obvious questions).
-
-Keep bullets concise (≤20 words), fact-based, and draw directly from the source. If names, dates, or metrics appear, include them. Never ask the user to provide more text.
+    private static let structuredSummaryInstructions = """
+You are an expert summarization assistant. Read the provided content and populate the summary fields:
+- overall: a single sentence capturing the core message.
+- keyTakeaways: the most important insights (at most three).
+- actionItems: concrete next steps (at most three; leave empty if there are none).
+- questions: open issues or uncertainties (at most three; leave empty if there are none).
+Keep each entry concise (≤20 words), fact-based, and drawn directly from the source. Include names, dates, and metrics when present. Never ask the user to provide more text.
 """
 
     private static let chunkInstructions = """
 You summarize long documents by first summarizing each section and then combining the results.
 For each section you receive, produce concise bullet-ready takeaways in plain language. Capture unique facts, decisions, action items, and open questions. Avoid meta commentary or requests for more input. Output should be well-formed sentences suitable for markdown bullets.
-"""
-
-    private static let aggregationHint = """
-Using the provided section-level summaries, craft the final Markdown summary with the required structure:
-1. Start with **Overall:** followed by one sentence that synthesizes the entire document.
-2. Provide **Key Takeaways**, **Action Items**, and **Questions** sections exactly in that order, each containing up to three bullet points.
-3. If a section has no content, include a single bullet `- None`.
-
-Ensure the final output is clean Markdown, avoids repetition, and does not mention the summarization process.
 """
 
     private static let singlePassLimit = 15_000
@@ -84,49 +75,32 @@ Ensure the final output is clean Markdown, avoids repetition, and does not menti
             throw SummarizationFailure(message: "Content too long for summarization", stage: "precheck", retryable: false)
         }
 
-        do {
-            let summary = try await runModel(
-                prompt: Prompt("Summarize the following content.\n\n\(trimmed)"),
-                instructions: defaultInstructions,
-                options: GenerationOptions(
-                    sampling: nil,
-                    temperature: 0.3,
-                    maximumResponseTokens: 500
-                ),
-                stage: nil
-            )
+        // Guided generation guarantees the structure; on any model/availability
+        // error this propagates out and the Python caller applies its local
+        // fallback summary.
+        let structured = try await runStructuredModel(
+            prompt: Prompt("Summarize the following content.\n\n\(trimmed)"),
+            instructions: structuredSummaryInstructions,
+            options: GenerationOptions(
+                sampling: nil,
+                temperature: 0.3,
+                maximumResponseTokens: 500
+            ),
+            stage: nil
+        )
 
-            return SummaryResult(
-                success: true,
-                summary: summary,
-                error: nil,
-                retryable: nil,
-                stage: nil,
-                warnings: nil,
-                stageResults: nil,
-                mode: "single",
-                version: nil,
-                elapsedMs: nil
-            )
-        } catch let failure as SummarizationFailure where failure.message == placeholderMessage {
-            let fallback = fallbackSummary(
-                from: trimmed,
-                targetSentences: 3,
-                note: "Fallback summary generated due to unavailable model output"
-            )
-            return SummaryResult(
-                success: true,
-                summary: fallback,
-                error: nil,
-                retryable: nil,
-                stage: nil,
-                warnings: ["Single-pass summary used fallback summarization"],
-                stageResults: nil,
-                mode: "single",
-                version: nil,
-                elapsedMs: nil
-            )
-        }
+        return SummaryResult(
+            success: true,
+            summary: renderMarkdown(structured, note: nil),
+            error: nil,
+            retryable: nil,
+            stage: nil,
+            warnings: nil,
+            stageResults: nil,
+            mode: "single",
+            version: nil,
+            elapsedMs: nil
+        )
     }
 
     private static func handleChunked(request: ChunkedSummarizationRequest) async throws -> SummaryResult {
@@ -313,14 +287,14 @@ Combine the following section summaries into a single concise paragraph that cap
 
         let aggregateInstructions: String
         if let custom = request.instructions, !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            aggregateInstructions = custom + "\n" + aggregationHint.replacingOccurrences(of: "NUMBER_SENTENCES", with: "\(targetSentences)")
+            aggregateInstructions = custom
         } else {
-            aggregateInstructions = defaultInstructions + "\n" + aggregationHint.replacingOccurrences(of: "NUMBER_SENTENCES", with: "\(targetSentences)")
+            aggregateInstructions = structuredSummaryInstructions
         }
 
         let finalSummary: String
         do {
-            finalSummary = try await runModel(
+            let structured = try await runStructuredModel(
                 prompt: Prompt(aggregationPrompt),
                 instructions: aggregateInstructions,
                 options: GenerationOptions(
@@ -330,6 +304,7 @@ Combine the following section summaries into a single concise paragraph that cap
                 ),
                 stage: "aggregation"
             )
+            finalSummary = renderMarkdown(structured, note: nil)
         } catch let failure as SummarizationFailure {
             if failure.message == placeholderMessage || failure.message == "Content too long for processing" {
                 let fallback = fallbackSummary(fromChunks: chunkSummaries, targetSentences: targetSentences, note: "Fallback summary generated due to unavailable model output")
@@ -396,6 +371,41 @@ Combine the following section summaries into a single concise paragraph that cap
             let retryable = isRetryable(error: error)
             throw SummarizationFailure(message: message, stage: stage, retryable: retryable)
         }
+    }
+
+    private static func runStructuredModel(
+        prompt: Prompt,
+        instructions: String,
+        options: GenerationOptions,
+        stage: String?
+    ) async throws -> StructuredSummary {
+        let session = LanguageModelSession(instructions: instructions)
+        do {
+            let response = try await session.respond(
+                to: prompt,
+                generating: StructuredSummary.self,
+                options: options
+            )
+            let summary = response.content
+            guard !summary.overall.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw SummarizationFailure(message: placeholderMessage, stage: stage, retryable: true)
+            }
+            return summary
+        } catch let error as LanguageModelSession.GenerationError {
+            let message = generationErrorMessage(for: error)
+            let retryable = isRetryable(error: error)
+            throw SummarizationFailure(message: message, stage: stage, retryable: retryable)
+        }
+    }
+
+    private static func renderMarkdown(_ summary: StructuredSummary, note: String?) -> String {
+        buildStructuredSummary(
+            overall: summary.overall,
+            takeaways: summary.keyTakeaways,
+            actionItems: summary.actionItems,
+            questions: summary.questions,
+            note: note
+        )
     }
 
     private static func decodeChunkedRequest(from data: Data) -> ChunkedSummarizationRequest? {
@@ -645,6 +655,24 @@ struct ChunkSummary {
     let id: String
     let index: Int
     let summary: String
+}
+
+/// Structured summary produced via guided generation. The `@Generable` macro
+/// builds a schema that the on-device model is constrained to fill, so the
+/// returned object is always structurally valid — no prose parsing required.
+@Generable
+struct StructuredSummary {
+    @Guide(description: "A single sentence capturing the core message of the content.")
+    let overall: String
+
+    @Guide(description: "The most important insights, at most three, each a concise fact-based phrase.")
+    let keyTakeaways: [String]
+
+    @Guide(description: "Concrete next steps, at most three. Empty if there are no clear actions.")
+    let actionItems: [String]
+
+    @Guide(description: "Open questions or uncertainties, at most three. Empty if there are none.")
+    let questions: [String]
 }
 
 struct StageResult: Encodable {
