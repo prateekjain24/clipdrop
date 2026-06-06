@@ -41,7 +41,7 @@ Perfect for:
 - ✍️ **Writers** - Build documents by appending content throughout the day
 - 🎓 **Students** - Organize research without switching apps
 
-## 🎯 Top 5 Killer Features
+## 🎯 Killer Features
 
 ### 1. 🧠 **Smart Format Detection**
 ClipDrop knows what you copied and saves it correctly:
@@ -98,6 +98,17 @@ Never accidentally save credentials:
 clipdrop config.env -s           # Scan before saving
 clipdrop api-keys.txt --scan-mode redact  # Auto-redact secrets
 ```
+
+### 7. 🏷️ **Auto-Name** (macOS 26.0+)
+Stop inventing filenames. Let the on-device model read the content and propose one:
+```bash
+clipdrop --auto-name             # → quarterly-revenue-growth.md
+clipdrop --auto-name notes.txt   # Honors the extension you give it
+clipdrop --ocr --auto-name       # Name a screenshot from its recognized text
+```
+- A short Title-Case suggestion is slugified into a tidy, filesystem-safe name
+- The positional filename is optional; a provided extension is kept, otherwise format detection picks it
+- Falls back to a content-based slug when Apple Intelligence isn't available
 
 ## 📖 Common Workflows
 
