@@ -431,6 +431,54 @@ def generate_auto_filename(content: Optional[str], provided_filename: Optional[s
     return f"{stem}{ext}"
 
 
+def _table_dimensions(table: dict) -> tuple[list[str], list, int]:
+    headers = [str(h) for h in (table.get("headers") or [])]
+    rows = table.get("rows") or []
+    width = len(headers) or (len(rows[0]) if rows and isinstance(rows[0], list) else 0)
+    if not headers and width:
+        headers = [f"Column {i + 1}" for i in range(width)]
+    return headers, rows, width
+
+
+def _normalize_cells(cells, width: int) -> list[str]:
+    values = [str(c) for c in (cells if isinstance(cells, list) else [cells])][:width]
+    values += [""] * (width - len(values))
+    return values
+
+
+def render_markdown_table(table: dict) -> str:
+    """Render a {headers, rows} table dict as a GitHub-flavored Markdown table."""
+    headers, rows, width = _table_dimensions(table)
+    if not width:
+        return ""
+
+    def fmt(cells) -> str:
+        escaped = [c.replace("|", "\\|") for c in _normalize_cells(cells, width)]
+        return "| " + " | ".join(escaped) + " |"
+
+    lines = [fmt(headers), "| " + " | ".join(["---"] * width) + " |"]
+    lines.extend(fmt(row) for row in rows)
+    return "\n".join(lines) + "\n"
+
+
+def render_csv_table(table: dict) -> str:
+    """Render a {headers, rows} table dict as CSV."""
+    import csv
+    import io
+
+    headers, rows, width = _table_dimensions(table)
+    if not width:
+        return ""
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    if headers:
+        writer.writerow(headers)
+    for row in rows:
+        writer.writerow(_normalize_cells(row, width))
+    return buffer.getvalue()
+
+
 def version_callback(value: bool):
     """Handle --version flag."""
     if value:
@@ -861,6 +909,26 @@ def main(
         help="Let ClipDrop name the file from its content (on-device). "
              "A provided extension is kept; the filename can be omitted entirely",
     ),
+    rewrite: Optional[str] = typer.Option(
+        None,
+        "--rewrite",
+        help="Rewrite clipboard text in a style before saving (on-device), "
+             "e.g. --rewrite formal | concise | friendly | professional",
+        metavar="STYLE",
+    ),
+    prompt: Optional[str] = typer.Option(
+        None,
+        "--prompt",
+        help="Transform clipboard text with a freeform instruction before "
+             "saving (on-device), e.g. --prompt \"turn this into release notes\"",
+        metavar="INSTRUCTION",
+    ),
+    to_table: bool = typer.Option(
+        False,
+        "--to-table",
+        help="Turn clipboard text into a table (on-device). Saves Markdown by "
+             "default, or CSV when the filename ends in .csv",
+    ),
     youtube: bool = typer.Option(
         False,
         "--youtube",
@@ -1160,6 +1228,59 @@ def main(
             content = recognized
             image = None
             content_type = 'text'
+
+        # Transform mode - rewrite / freeform prompt / to-table over text content
+        transform_ops = [
+            name for name, value in (
+                ("rewrite", rewrite),
+                ("prompt", prompt),
+                ("table", to_table),
+            ) if value
+        ]
+        if len(transform_ops) > 1:
+            console.print("[red]❌ Use only one transform at a time (--rewrite / --prompt / --to-table).[/red]")
+            raise typer.Exit(1)
+
+        if transform_ops:
+            transform_op = transform_ops[0]
+            if not content or not content.strip():
+                console.print("[red]❌ No text content to transform.[/red]")
+                console.print("[dim]Copy text (or use --ocr on an image) before --rewrite/--prompt/--to-table.[/dim]")
+                raise typer.Exit(1)
+
+            from clipdrop.macos_ai import transform_content, TransformNotAvailableError
+
+            labels = {"rewrite": "Rewriting", "prompt": "Transforming", "table": "Building table from"}
+            console.print(f"[cyan]✍️  {labels[transform_op]} content (on-device)...[/cyan]")
+            try:
+                data = transform_content(
+                    content,
+                    transform_op,
+                    style=rewrite,
+                    instruction=prompt,
+                    language=lang,
+                )
+            except TransformNotAvailableError as exc:
+                console.print(f"[red]❌ {exc}[/red]")
+                raise typer.Exit(2)
+            except RuntimeError as exc:
+                console.print(f"[red]❌ Transform failed: {exc}[/red]")
+                raise typer.Exit(1)
+
+            if transform_op == "table":
+                table = data.get("table") or {}
+                target_ext = Path(filename).suffix.lower() if filename else ""
+                content = render_csv_table(table) if target_ext == ".csv" else render_markdown_table(table)
+            else:
+                content = data.get("result", "")
+
+            if not content or not content.strip():
+                console.print("[yellow]⚠️  Transform produced no output[/yellow]")
+                raise typer.Exit(1)
+
+            image = None
+            content_type = 'text'
+            console.print("[green]✓ Transformed[/green]")
 
         # Auto-name the file from its content when requested
         if auto_name:

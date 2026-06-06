@@ -42,6 +42,11 @@ class OCRNotAvailableError(Exception):
     pass
 
 
+class TransformNotAvailableError(Exception):
+    """Raised when the transform helper cannot be used."""
+    pass
+
+
 def get_macos_version() -> Optional[tuple[int, int]]:
     """Get macOS version as (major, minor) tuple, or None if not macOS."""
     if platform.system() != "Darwin":
@@ -413,6 +418,94 @@ def _parse_summarizer_process(process: subprocess.CompletedProcess[str]) -> "Sum
         warnings=data.get("warnings"),
         stage_results=data.get("stage_results"),
     )
+
+
+TRANSFORM_MAX_CHARS = 10_000
+
+
+def get_transform_helper_path() -> Path:
+    """Return path to the packaged transform helper binary.
+
+    Raises:
+        TransformNotAvailableError: If not on macOS 26+ or the helper is missing.
+    """
+    try:
+        return get_swift_helper_path("clipdrop-transform")
+    except SummarizationNotAvailableError as exc:
+        raise TransformNotAvailableError(str(exc)) from exc
+
+
+def transform_content(
+    content: str,
+    operation: str,
+    *,
+    style: Optional[str] = None,
+    instruction: Optional[str] = None,
+    language: Optional[str] = None,
+    timeout: int = 45,
+) -> dict[str, Any]:
+    """Apply an on-device transformation to ``content``.
+
+    Args:
+        content: The text to transform.
+        operation: One of ``"rewrite"``, ``"prompt"``, or ``"table"``.
+        style: Target style for ``rewrite`` (e.g. ``"formal"``).
+        instruction: Freeform instruction for ``prompt``.
+        language: Optional BCP-47 language hint.
+        timeout: Seconds to wait for the helper.
+
+    Returns:
+        The parsed helper payload, e.g. ``{"success": True, "result": "..."}``
+        or ``{"success": True, "table": {"headers": [...], "rows": [[...]]}}``.
+
+    Raises:
+        TransformNotAvailableError: If the helper is unavailable (e.g. not macOS).
+        RuntimeError: If the transform fails.
+    """
+    stripped = content.strip()
+    if not stripped:
+        raise RuntimeError("No content to transform")
+    if len(stripped) > TRANSFORM_MAX_CHARS:
+        raise RuntimeError(
+            f"Content too long to transform (max ~{TRANSFORM_MAX_CHARS:,} characters)"
+        )
+
+    helper = get_transform_helper_path()  # raises TransformNotAvailableError
+
+    payload: dict[str, Any] = {"operation": operation, "content": stripped}
+    if style:
+        payload["style"] = style
+    if instruction:
+        payload["instruction"] = instruction
+    if language:
+        payload["language"] = language
+
+    try:
+        process = subprocess.run(  # noqa: S603 - controlled args
+            [str(helper)],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("Transform timed out")
+    except (subprocess.SubprocessError, OSError) as exc:
+        raise RuntimeError(f"Transform failed: {exc}")
+
+    stdout = (process.stdout or "").strip()
+    if not stdout:
+        raise RuntimeError((process.stderr or "").strip() or "Transform produced no output")
+
+    try:
+        data = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        raise RuntimeError("Failed to parse transform result")
+
+    if not data.get("success"):
+        raise RuntimeError(data.get("error") or "Transform failed")
+
+    return data
 
 
 def suggest_filename(content: str, timeout: int = 15) -> Optional[str]:

@@ -9,6 +9,7 @@ declare -a HELPERS=(
   "clipdrop-summarize:swift/ClipdropSummarize"
   "clipdrop-ocr:swift/ClipdropOCR"
   "clipdrop-suggest-name:swift/ClipdropSuggestName"
+  "clipdrop-transform:swift/ClipdropTransform"
 )
 
 mkdir -p "$OUT_DIR"

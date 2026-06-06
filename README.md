@@ -237,6 +237,20 @@ clipdrop --lang es      # Set language
 > framework — no data leaves your Mac. It composes with other flags, e.g.
 > `clipdrop slide.md --ocr --summarize`.
 
+### ✨ Transform clipboard text (macOS, on-device)
+
+"Writing Tools for the terminal" — reshape what you copied on the way to a file:
+
+```bash
+clipdrop email.txt --rewrite formal          # rewrite in a style (concise/friendly/…)
+clipdrop notes.md  --prompt "extract the action items"   # any freeform instruction
+clipdrop data.md   --to-table                # messy text → Markdown table
+clipdrop data.csv  --to-table                # …or CSV when the name ends in .csv
+```
+
+These run entirely on-device via Apple Intelligence and compose with everything
+else, e.g. `clipdrop --ocr --to-table table.csv` or `clipdrop draft.md --rewrite concise --auto-name`.
+
 [📚 **Full Command Documentation →**](./usage.md)
 
 ## 🎯 Pro Tips
