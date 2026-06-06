@@ -110,6 +110,17 @@ clipdrop --ocr --auto-name       # Name a screenshot from its recognized text
 - The positional filename is optional; a provided extension is kept, otherwise format detection picks it
 - Falls back to a content-based slug when Apple Intelligence isn't available
 
+### 8. ✍️ **Transform** (macOS 26.0+) - Writing Tools for the Terminal
+Reshape copied text on the way to a file, entirely on-device:
+```bash
+clipdrop email.txt --rewrite formal                    # restyle (concise/friendly/…)
+clipdrop notes.md  --prompt "extract the action items" # any freeform instruction
+clipdrop data.md   --to-table                          # messy text → Markdown table
+clipdrop data.csv  --to-table                          # …or CSV when the name ends in .csv
+```
+- Stacks with everything else, e.g. `clipdrop --ocr --to-table table.csv` or `clipdrop draft.md --rewrite concise --auto-name`
+- Transforms run after content/OCR is resolved and before naming/summarizing
+
 ## 📖 Common Workflows
 
 <details>

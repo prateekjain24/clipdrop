@@ -5,6 +5,29 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-06-06
+
+### ✨ Clipboard Transforms — Writing Tools for the Terminal
+
+Reshape copied text on the way to a file, entirely on-device.
+
+### Added
+- **`--rewrite <style>`** - restyle text (formal / concise / friendly / ...) via the on-device model
+- **`--prompt "<instruction>"`** - apply any freeform instruction to the text
+- **`--to-table`** - turn messy text into a table via guided generation (`@Generable { headers, rows }`); rendered to Markdown, or CSV when the filename ends in `.csv`
+- All three compose with existing flags - transforms run after content/OCR is resolved and before naming/summarizing, so `--ocr`, `--auto-name`, and `--summarize` all stack with them
+- New Swift helper `clipdrop-transform` (JSON in/out, universal arm64+x86_64)
+
+### Technical
+- `macos_ai`: `TransformNotAvailableError`, `get_transform_helper_path()`, `transform_content()` (JSON protocol, length guard, error mapping)
+- `main`: `render_markdown_table()` / `render_csv_table()` and mutual-exclusion handling across the verbs
+- 19 new Python tests (transform_content, table rendering, per-verb CLI, mutual exclusion, no-text, unavailable)
+
+### Notes
+- Translate was intentionally deferred: the Translation framework's `TranslationSession` is SwiftUI-bound and can't be cleanly driven from a headless helper
+
+---
+
 ## [1.9.0] - 2026-06-06
 
 ### ✨ AI-Suggested Filenames
