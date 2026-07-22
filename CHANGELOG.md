@@ -5,6 +5,24 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-22
+
+### Added
+- **Rich text copy (`--rich`/`-r`)** — convert clipboard Markdown to rich text
+  (HTML) and copy it back to the clipboard, so pasting into Confluence, Google
+  Docs, Gmail, or Slack produces formatted headings, lists, tables, links, and
+  code blocks instead of raw Markdown syntax
+  - Sets both pasteboard flavors: rendered HTML plus the original Markdown as
+    the plain-text fallback (plain-text targets and "Paste and Match Style"
+    still get your source)
+  - Renders with markdown-it-py (CommonMark + GFM tables/strikethrough) and
+    scrubs the output for editor-safe pasting: spans unwrapped, style/class
+    attributes stripped, code fence languages mapped to Confluence's
+    recognized set (`js` → `javascript`, `yml` → `yaml`, …)
+  - Composes with `--preview` (inspect the HTML before copying), secret
+    scanning (`-s`/`--scan-mode`, runs on the Markdown source), and an
+    optional filename to also save the HTML (`clipdrop -r page` → `page.html`)
+
 ## [2.0.0] - 2026-06-06
 
 ### 🔒 Security & Correctness Hardening
