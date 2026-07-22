@@ -110,7 +110,21 @@ clipdrop --ocr --auto-name       # Name a screenshot from its recognized text
 - The positional filename is optional; a provided extension is kept, otherwise format detection picks it
 - Falls back to a content-based slug when Apple Intelligence isn't available
 
-### 8. ✍️ **Transform** (macOS 26.0+) - Writing Tools for the Terminal
+### 8. 📋 **Rich Text Copy** - Paste Markdown into Confluence
+Copied Markdown pastes as raw `# syntax` in rich editors. `--rich` converts it
+to HTML and puts it back on the clipboard with both rich-text and plain-text
+flavors, so it pastes *formatted* into Confluence, Google Docs, Gmail, or Slack:
+```bash
+# Copy some markdown, then:
+clipdrop --rich                  # Convert → paste formatted anywhere
+clipdrop -r -p                   # Preview the HTML first
+clipdrop -r page                 # Also save it → page.html
+```
+- Headings, lists, tables, links, and code blocks survive the paste
+- Plain-text targets (and "Paste and Match Style") still get your original markdown
+- Code fence languages are mapped to what Confluence recognizes (`js` → `javascript`)
+
+### 9. ✍️ **Transform** (macOS 26.0+) - Writing Tools for the Terminal
 Reshape copied text on the way to a file, entirely on-device:
 ```bash
 clipdrop email.txt --rewrite formal                    # restyle (concise/friendly/…)
@@ -227,6 +241,7 @@ clipdrop -f <filename>   # Force overwrite
 ```bash
 clipdrop -yt            # YouTube transcript mode
 clipdrop --audio        # Force audio transcription
+clipdrop --rich         # Markdown → rich text, back to the clipboard
 ```
 
 ### Filters & Options

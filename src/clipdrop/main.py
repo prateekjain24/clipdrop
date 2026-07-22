@@ -17,7 +17,7 @@ from rich.syntax import Syntax
 from rich.prompt import Confirm
 
 from clipdrop import __version__
-from clipdrop import clipboard, detect, files, images, pdf
+from clipdrop import clipboard, detect, files, images, pdf, richtext
 from clipdrop.macos_ai import summarize_content, summarize_content_with_chunking
 from clipdrop.error_helpers import display_error, show_success_message
 from clipdrop.paranoid import (
@@ -26,6 +26,8 @@ from clipdrop.paranoid import (
     print_binary_skip_notice,
 )
 from clipdrop.exceptions import (
+    ClipboardAccessError,
+    ContentTooLargeError,
     YTDLPNotFoundError,
     NoCaptionsError,
     YouTubeError
@@ -1039,6 +1041,87 @@ def handle_youtube_transcript(
         raise typer.Exit(1)
 
 
+def handle_rich_copy(
+    filename: Optional[str],
+    scan: bool,
+    paranoid_mode: Optional[ParanoidMode],
+    preview: bool,
+    force: bool,
+    yes: bool,
+) -> None:
+    """Convert clipboard Markdown to rich text (HTML) and copy it back.
+
+    Sets both HTML and plain-text clipboard flavors so pasting into rich
+    editors (Confluence, Google Docs, Gmail, Slack) produces formatted
+    content while plain-text targets still get the original markdown.
+    Optionally saves the HTML to a file when a filename is given.
+    """
+    content = clipboard.get_text()
+    if not content or not content.strip():
+        display_error('empty_clipboard')
+        raise typer.Exit(1)
+
+    if not detect.is_markdown(content):
+        console.print(
+            "[yellow]⚠️ Clipboard content doesn't look like Markdown — "
+            "converting anyway[/yellow]"
+        )
+
+    # Scan the markdown source before it goes anywhere
+    active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if scan else None)
+    if active_paranoid:
+        content, _ = paranoid_gate(
+            content,
+            active_paranoid,
+            is_tty=sys.stdin.isatty(),
+            auto_yes=yes
+        )
+        if content is None:
+            console.print("[yellow]⚠️ Content not copied (paranoid mode)[/yellow]")
+            raise typer.Exit(0)
+
+    try:
+        html = richtext.markdown_to_rich_html(content)
+    except ValueError as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        raise typer.Exit(1)
+
+    if preview:
+        console.print(Panel(
+            Syntax(html, "html", word_wrap=True),
+            title="Rich text (HTML) preview",
+            border_style="cyan"
+        ))
+        if not yes and not Confirm.ask(
+            "\n[yellow]Copy rich text to clipboard?[/yellow]"
+        ):
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit(0)
+
+    try:
+        clipboard.copy_rich_text_to_clipboard(html, plain_text=content)
+    except (ContentTooLargeError, ClipboardAccessError) as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        raise typer.Exit(1)
+
+    if filename:
+        output_filename = filename if Path(filename).suffix else f"{filename}.html"
+        files.write_text(output_filename, html, force=force)
+        console.print(f"[green]💾 HTML saved to '{output_filename}'[/green]")
+
+    html_size = len(html.encode('utf-8'))
+    size_str = (
+        f"{html_size:,} bytes" if html_size < 1024 else f"{html_size/1024:.1f} KB"
+    )
+    console.print(Panel(
+        "[green]✅ Rich text copied to clipboard[/green]\n"
+        "Paste into Confluence, Google Docs, Gmail, or Slack for "
+        "formatted content.\n"
+        f"[dim]HTML: {size_str} | Plain-text fallback: original markdown[/dim]",
+        border_style="green"
+    ))
+
+
 def main(
     filename: Optional[str] = typer.Argument(
         None,
@@ -1170,6 +1253,15 @@ def main(
              "Outputs: .srt (subtitles), .txt (plain text), or .md (markdown). "
              "Requires macOS 26.0+ with Apple Intelligence"
     ),
+    rich: bool = typer.Option(
+        False,
+        "--rich",
+        "-r",
+        help="Convert clipboard Markdown to rich text (HTML) and copy it "
+             "back to the clipboard for pasting into Confluence, Google "
+             "Docs, Gmail, or Slack. Saves the HTML too when a filename "
+             "is given"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -1207,6 +1299,11 @@ def main(
         clipdrop -yt video.srt      # Save as subtitles
         clipdrop -yt --lang es      # Spanish transcript
         clipdrop -yt --chapters     # Include chapter markers
+
+      [green]Rich Text:[/green]
+        clipdrop --rich             # Markdown → rich text, back to clipboard
+        clipdrop -r -p              # Preview HTML before copying
+        clipdrop -r page            # Also save the HTML → page.html
 
       [green]Mixed Content:[/green]
         clipdrop document           # Mixed text+image → document.pdf
@@ -1263,6 +1360,18 @@ def main(
             summarize=summarize,
         )
 
+    # Check if this is rich text mode (before audio auto-detect so stale
+    # clipboard audio can't hijack the command)
+    if rich:
+        return handle_rich_copy(
+            filename=filename,
+            scan=paranoid_flag,
+            paranoid_mode=paranoid_mode,
+            preview=preview,
+            force=force,
+            yes=yes,
+        )
+
     # Check for audio in clipboard (with or without filename)
     try:
         from clipdrop.macos_ai import check_audio_in_clipboard
@@ -1288,6 +1397,7 @@ def main(
         console.print("  clipdrop data.json     # Save JSON")
         console.print("  clipdrop --youtube     # Download YouTube transcript")
         console.print("  clipdrop --audio       # Transcribe audio from clipboard")
+        console.print("  clipdrop --rich        # Markdown → rich text clipboard")
         console.print("  clipdrop -yt output.srt # YouTube with custom name")
         console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
         raise typer.Exit(1)

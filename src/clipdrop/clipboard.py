@@ -1,5 +1,7 @@
 """Clipboard operations module for ClipDrop."""
 
+import subprocess
+import sys
 import time
 from typing import Optional, Dict, Any
 import pyperclip
@@ -26,6 +28,10 @@ _clipboard_cache: Dict[str, Any] = {
 
 # Maximum content size (100MB)
 MAX_CONTENT_SIZE = 100 * 1024 * 1024
+
+# Maximum HTML size for rich text clipboard writes (10MB); hex encoding
+# doubles the osascript payload, so keep this well under MAX_CONTENT_SIZE
+MAX_RICH_CONTENT_SIZE = 10 * 1024 * 1024
 
 
 def get_text() -> Optional[str]:
@@ -273,6 +279,95 @@ def copy_to_clipboard(content: str) -> None:
         _clipboard_cache['timestamp'] = time.time()
     except Exception as e:
         raise ClipboardAccessError("Cannot copy to clipboard", original_error=e)
+
+
+def _escape_applescript_string(text: str) -> str:
+    """Escape text for embedding in a double-quoted AppleScript string."""
+    text = text.replace('\r\n', '\n')
+    text = text.replace('\\', '\\\\')
+    text = text.replace('"', '\\"')
+    text = text.replace('\n', '\\n')
+    text = text.replace('\r', '\\n')
+    text = text.replace('\t', '\\t')
+    return text
+
+
+def build_rich_clipboard_script(html: str, plain_text: str) -> str:
+    """
+    Build an AppleScript that sets both HTML and plain-text clipboard flavors.
+
+    The HTML is hex-encoded into a «data HTML…» literal (the inverse of the
+    read path in html_parser.get_html_from_clipboard), so it needs no
+    escaping. The text attribute supplies the plain-text flavor — without it
+    paste breaks entirely in apps like Slack and Firefox.
+
+    Args:
+        html: HTML fragment for the rich text flavor
+        plain_text: Plain-text fallback (typically the original markdown)
+
+    Returns:
+        AppleScript source string
+    """
+    hex_html = html.encode('utf-8').hex().upper()
+    escaped_text = _escape_applescript_string(plain_text)
+    return (
+        f'set the clipboard to '
+        f'{{text:"{escaped_text}", «class HTML»:«data HTML{hex_html}»}}'
+    )
+
+
+def copy_rich_text_to_clipboard(html: str, plain_text: str) -> None:
+    """
+    Copy rich text (HTML) to the macOS clipboard with a plain-text fallback.
+
+    Sets both the public.html and plain-text pasteboard flavors so rich
+    editors (Confluence, Google Docs, Gmail, Slack) paste formatted content
+    while plain-text targets get the original source.
+
+    Args:
+        html: HTML fragment for the rich text flavor
+        plain_text: Plain-text fallback (typically the original markdown)
+
+    Raises:
+        ContentTooLargeError: If HTML exceeds MAX_RICH_CONTENT_SIZE
+        ClipboardAccessError: If not on macOS or osascript fails
+    """
+    html_size = len(html.encode('utf-8'))
+    if html_size > MAX_RICH_CONTENT_SIZE:
+        raise ContentTooLargeError(html_size, MAX_RICH_CONTENT_SIZE)
+
+    if sys.platform != 'darwin':
+        raise ClipboardAccessError(
+            "Rich text clipboard copy requires macOS"
+        )
+
+    script = build_rich_clipboard_script(html, plain_text)
+    try:
+        # Script over stdin: hex-encoded HTML can exceed argv size limits
+        result = subprocess.run(
+            ['osascript', '-'],
+            input=script.encode('utf-8'),
+            capture_output=True,
+            timeout=10
+        )
+    except subprocess.TimeoutExpired as e:
+        raise ClipboardAccessError(
+            "Timed out writing rich text to clipboard", original_error=e
+        )
+    except OSError as e:
+        raise ClipboardAccessError(
+            "Cannot run osascript to write rich text", original_error=e
+        )
+
+    if result.returncode != 0:
+        stderr = result.stderr.decode('utf-8', errors='ignore').strip()
+        raise ClipboardAccessError(
+            f"Failed to write rich text to clipboard: {stderr or 'osascript error'}"
+        )
+
+    # Update cache with the plain-text flavor
+    _clipboard_cache['content'] = plain_text
+    _clipboard_cache['timestamp'] = time.time()
 
 
 # Image clipboard operations
