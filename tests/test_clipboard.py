@@ -240,3 +240,79 @@ class TestPerformance:
         assert result == large_content
         # Should handle 10MB in reasonable time (< 0.5 seconds)
         assert performance_timer.elapsed < 0.5
+
+class TestRichTextClipboard:
+    """Tests for rich text (HTML) clipboard writing."""
+
+    def test_build_script_hex_round_trip(self):
+        """HTML in the script hex-decodes back to the original."""
+        import re
+        html = "<h1>Héllo 世界</h1>"
+        script = clipboard.build_rich_clipboard_script(html, "fallback")
+
+        match = re.search(r'«data HTML([0-9A-Fa-f]+)»', script)
+        assert match is not None
+        assert bytes.fromhex(match.group(1)).decode('utf-8') == html
+
+    def test_build_script_escapes_plain_text(self):
+        """Plain-text part escapes quotes, backslashes, and newlines."""
+        script = clipboard.build_rich_clipboard_script(
+            "<p>x</p>", 'say "hi"\nback\\slash'
+        )
+        assert '\\"hi\\"' in script
+        assert '\\n' in script
+        assert '\\\\slash' in script
+        # No raw newlines may survive inside the single-line script
+        assert '\n' not in script
+
+    def test_build_script_sets_both_flavors(self):
+        script = clipboard.build_rich_clipboard_script("<p>x</p>", "md source")
+        assert script.startswith('set the clipboard to {text:"')
+        assert '«class HTML»' in script
+
+    @patch('clipdrop.clipboard.sys.platform', 'darwin')
+    @patch('clipdrop.clipboard.subprocess.run')
+    def test_copy_rich_text_invokes_osascript_via_stdin(self, mock_run):
+        mock_run.return_value.returncode = 0
+        clipboard.copy_rich_text_to_clipboard("<h1>Hi</h1>", "# Hi")
+
+        args, kwargs = mock_run.call_args
+        assert args[0] == ['osascript', '-']
+        script = kwargs['input'].decode('utf-8')
+        assert '«class HTML»' in script
+        assert 'set the clipboard to' in script
+
+    @patch('clipdrop.clipboard.sys.platform', 'darwin')
+    @patch('clipdrop.clipboard.subprocess.run')
+    def test_copy_rich_text_updates_cache(self, mock_run):
+        mock_run.return_value.returncode = 0
+        clipboard.copy_rich_text_to_clipboard("<h1>Hi</h1>", "# Hi")
+        assert clipboard._clipboard_cache['content'] == "# Hi"
+
+    @patch('clipdrop.clipboard.sys.platform', 'darwin')
+    @patch('clipdrop.clipboard.subprocess.run')
+    def test_copy_rich_text_osascript_failure(self, mock_run):
+        from clipdrop.exceptions import ClipboardAccessError
+        import pytest
+
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stderr = b"execution error"
+
+        with pytest.raises(ClipboardAccessError):
+            clipboard.copy_rich_text_to_clipboard("<h1>Hi</h1>", "# Hi")
+
+    @patch('clipdrop.clipboard.sys.platform', 'linux')
+    def test_copy_rich_text_requires_macos(self):
+        from clipdrop.exceptions import ClipboardAccessError
+        import pytest
+
+        with pytest.raises(ClipboardAccessError, match="macOS"):
+            clipboard.copy_rich_text_to_clipboard("<h1>Hi</h1>", "# Hi")
+
+    def test_copy_rich_text_content_too_large(self):
+        from clipdrop.exceptions import ContentTooLargeError
+        import pytest
+
+        huge_html = "x" * (clipboard.MAX_RICH_CONTENT_SIZE + 1)
+        with pytest.raises(ContentTooLargeError):
+            clipboard.copy_rich_text_to_clipboard(huge_html, "fallback")
