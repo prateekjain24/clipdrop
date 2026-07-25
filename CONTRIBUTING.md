@@ -43,37 +43,40 @@ uv run pytest tests/test_performance.py -v
 ### Code Quality
 
 ```bash
-# Format code
-uv run black src tests
-
-# Lint code
-uv run ruff check .
-
-# Type checking (if configured)
-uv run mypy src
+# Lint code (enforced in CI)
+uv run ruff check src tests
 ```
+
+Black and mypy are available in the `dev` extra as optional local tools,
+but CI only enforces `ruff check`.
 
 ## 📝 Contribution Guidelines
 
 ### Code Style
 
 - Follow PEP 8 guidelines
-- Use Black for code formatting
 - Use meaningful variable and function names
 - Add type hints where appropriate
 - Keep functions focused and small
 
 ### Commit Messages
 
-- Use clear and descriptive commit messages
-- Start with a verb in present tense (e.g., "Add", "Fix", "Update")
-- Keep the first line under 72 characters
-- Reference issue numbers when applicable
+This repo uses [Conventional Commits](https://www.conventionalcommits.org/):
 
-Good examples:
-- `Add support for WEBP image format`
-- `Fix path traversal vulnerability in file validation`
-- `Update documentation for image support features`
+```
+<type>(<optional scope>): <imperative subject>
+```
+
+Types in use: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `build`, `ci`.
+Keep the subject under 72 characters; reference issue numbers when applicable.
+
+Real examples from this repo's history:
+- `feat(youtube): harden transcript downloads against YouTube blocking`
+- `fix(ci): pin ruff lint rules to pre-0.16 defaults`
+- `chore(deps): require yt-dlp >= 2026.7.4 for current YouTube fixes`
+- `refactor(pdf): single source of truth for code detection in detect.py`
+
+Release-prep commits always use `chore(release): X.Y.Z`.
 
 ### Pull Requests
 
@@ -109,8 +112,46 @@ Good examples:
 
 - Update README.md if adding new features
 - Add docstrings to new functions and classes
-- Update CHANGELOG.md with your changes
+- Update the `[Unreleased]` section of CHANGELOG.md with user-facing changes
+  (the release script rolls it into the next version heading)
 - Include examples in docstrings where helpful
+
+## 📦 Releasing
+
+Releases are cut from `main` by pushing a tag; CI does the rest.
+
+1. Make sure `[Unreleased]` in CHANGELOG.md describes everything since the
+   last release — the release script refuses to run if it's empty.
+2. Run the release prep script:
+   ```bash
+   python scripts/release.py X.Y.Z
+   ```
+   It bumps `pyproject.toml` and `src/clipdrop/__init__.py`, rolls the
+   CHANGELOG (`[Unreleased]` → `[X.Y.Z] - <date>` plus compare links), and
+   prints the exact git commands for the remaining steps.
+3. Commit as `chore(release): X.Y.Z`, open a PR, let CI pass, merge.
+4. Tag the merge commit on `main` — always annotated, always on main:
+   ```bash
+   git switch main && git pull
+   git tag -a vX.Y.Z -m "clipdrop X.Y.Z"
+   git push origin vX.Y.Z
+   ```
+5. The Release workflow then verifies the tag matches `pyproject.toml`,
+   `__init__.py`, and the top CHANGELOG heading, runs tests + ruff, builds
+   the package, creates the GitHub Release with the CHANGELOG section as
+   its body, and uploads to PyPI (idempotent via `--skip-existing`).
+6. If the verify job fails, nothing was published. Delete the tag, fix on
+   `main`, and re-tag:
+   ```bash
+   git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z
+   ```
+
+Notes:
+- CHANGELOG version headings (`## [X.Y.Z] - YYYY-MM-DD`) are maintained by
+  the script — don't hand-edit their shape, CI matches it exactly.
+- The pipeline can be dry-run from the Actions tab: run "Release" via
+  *workflow_dispatch* with an existing version number — it verifies and
+  builds but skips the GitHub Release and PyPI upload.
 
 ## 🐛 Reporting Issues
 
