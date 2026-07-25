@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **YouTube blocking resilience** — `--youtube` now survives YouTube's
+  anti-bot measures much more often:
+  - `--cookies-from-browser BROWSER` authenticates requests with your
+    browser's cookies (chrome, firefox, safari, edge, brave), the reliable
+    fix for "Sign in to confirm you're not a bot" blocks
+  - Env overrides: `CLIPDROP_YT_COOKIES_FROM_BROWSER`, `CLIPDROP_YT_COOKIES`
+    (cookies file), `CLIPDROP_YT_PLAYER_CLIENT` (pin a yt-dlp player client)
+  - Bot-check and HTTP 429 failures are detected and reported with targeted
+    fixes instead of a generic error; rate limits retry with exponential
+    backoff; bot checks automatically retry once via the `mweb` player client
+  - Warns when the installed `yt-dlp` release is over 60 days old — the most
+    common cause of sudden YouTube breakage
+
+### Changed
+- YouTube metadata and caption listing now share a single cached `yt-dlp`
+  call (one network round-trip instead of two per video), reducing exposure
+  to YouTube's bot checks and rate limits; caption metadata is cached for
+  7 days in `~/.cache/clipdrop/youtube/<id>/metadata.json`
+- Caption extraction no longer fails when YouTube blocks only the media
+  formats (`--ignore-no-formats-error`)
+
+### Fixed
+- An HTTP 429 during subtitle download was previously misreported as
+  "No captions available" — it now surfaces as a rate-limit error with
+  retry guidance
 - **Plain text copy (`--plain`/`-P`)** — convert clipboard Markdown to clean
   plain text and copy it back: syntax stripped, structure kept (bullets,
   paragraph breaks, verbatim code blocks, link URLs in parentheses, tables as
