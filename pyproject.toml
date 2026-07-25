@@ -70,6 +70,12 @@ build-backend = "hatchling.build"
 "src/clipdrop/bin/clipdrop-suggest-name" = "clipdrop/bin/clipdrop-suggest-name"
 "src/clipdrop/bin/clipdrop-transform" = "clipdrop/bin/clipdrop-transform"
 
+[tool.ruff.lint]
+# Pin the rule set explicitly: ruff 0.16 expanded its defaults, which
+# broke CI with hundreds of findings in pre-existing code. This matches
+# ruff's pre-0.16 default selection.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests",
