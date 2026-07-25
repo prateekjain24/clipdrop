@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     common cause of sudden YouTube breakage
 
 ### Changed
+- Raised the `clipdrop[youtube]` extra's minimum `yt-dlp` to 2026.7.4 so
+  upgrades pull in current YouTube extractor fixes
 - YouTube metadata and caption listing now share a single cached `yt-dlp`
   call (one network round-trip instead of two per video), reducing exposure
   to YouTube's bot checks and rate limits; caption metadata is cached for
