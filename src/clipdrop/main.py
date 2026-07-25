@@ -1041,7 +1041,40 @@ def handle_youtube_transcript(
         raise typer.Exit(1)
 
 
-def handle_rich_copy(
+# Per-mode configuration for the clipboard format bridge (--rich/--plain/--md)
+_BRIDGE_MODES = {
+    'rich': {
+        'convert': lambda content: richtext.markdown_to_rich_html(content),
+        'default_ext': '.html',
+        'lexer': 'html',
+        'preview_title': 'Rich text (HTML) preview',
+        'success': "Rich text copied to clipboard",
+        'success_detail': "Paste into Confluence, Google Docs, Gmail, or "
+                          "Slack for formatted content.",
+    },
+    'plain': {
+        'convert': lambda content: richtext.markdown_to_plain(content),
+        'default_ext': '.txt',
+        'lexer': 'text',
+        'preview_title': 'Plain text preview',
+        'success': "Plain text copied to clipboard",
+        'success_detail': "Markdown syntax stripped — paste into email, "
+                          "LinkedIn, or chat as natural text.",
+    },
+    'md': {
+        'convert': lambda content: richtext.html_to_markdown(content),
+        'default_ext': '.md',
+        'lexer': 'markdown',
+        'preview_title': 'Markdown preview',
+        'success': "Markdown copied to clipboard",
+        'success_detail': "Rich clipboard content converted — paste into "
+                          "Claude/ChatGPT, notes, or any editor.",
+    },
+}
+
+
+def handle_format_bridge(
+    mode: str,
     filename: Optional[str],
     scan: bool,
     paranoid_mode: Optional[ParanoidMode],
@@ -1049,27 +1082,43 @@ def handle_rich_copy(
     force: bool,
     yes: bool,
 ) -> None:
-    """Convert clipboard Markdown to rich text (HTML) and copy it back.
+    """Convert clipboard content between Markdown, rich text, and plain text.
 
-    Sets both HTML and plain-text clipboard flavors so pasting into rich
-    editors (Confluence, Google Docs, Gmail, Slack) produces formatted
-    content while plain-text targets still get the original markdown.
-    Optionally saves the HTML to a file when a filename is given.
+    Modes:
+    - 'rich': Markdown → HTML, copied back with both HTML and plain-text
+      flavors so rich editors paste formatted content
+    - 'plain': Markdown → clean plain text (syntax stripped)
+    - 'md': the clipboard's rich text (HTML) flavor → GFM Markdown
+
+    Optionally saves the converted output to a file when a filename is given.
     """
-    content = clipboard.get_text()
-    if not content or not content.strip():
-        display_error('empty_clipboard')
-        raise typer.Exit(1)
+    config = _BRIDGE_MODES[mode]
 
-    if not detect.is_markdown(content):
-        console.print(
-            "[yellow]⚠️ Clipboard content doesn't look like Markdown — "
-            "converting anyway[/yellow]"
-        )
+    if mode == 'md':
+        from clipdrop import html_parser
+        content = html_parser.get_html_from_clipboard()
+        if not content or not content.strip():
+            console.print(
+                "[red]❌ No rich text (HTML) on the clipboard[/red]\n"
+                "[yellow]Copy from a web page, Google Docs, or another rich "
+                "editor first, then run clipdrop --md[/yellow]"
+            )
+            raise typer.Exit(1)
+    else:
+        content = clipboard.get_text()
+        if not content or not content.strip():
+            display_error('empty_clipboard')
+            raise typer.Exit(1)
+        if not detect.is_markdown(content):
+            console.print(
+                "[yellow]⚠️ Clipboard content doesn't look like Markdown — "
+                "converting anyway[/yellow]"
+            )
 
-    # Scan the markdown source before it goes anywhere
     active_paranoid = paranoid_mode or (ParanoidMode.PROMPT if scan else None)
-    if active_paranoid:
+
+    # For markdown-input modes, scan the source before it goes anywhere
+    if active_paranoid and mode != 'md':
         content, _ = paranoid_gate(
             content,
             active_paranoid,
@@ -1081,43 +1130,65 @@ def handle_rich_copy(
             raise typer.Exit(0)
 
     try:
-        html = richtext.markdown_to_rich_html(content)
+        result = config['convert'](content)
     except ValueError as e:
         console.print(f"[red]❌ {str(e)}[/red]")
         raise typer.Exit(1)
 
+    # For --md the converted markdown is what gets copied/saved — scan that
+    if active_paranoid and mode == 'md':
+        result, _ = paranoid_gate(
+            result,
+            active_paranoid,
+            is_tty=sys.stdin.isatty(),
+            auto_yes=yes
+        )
+        if result is None:
+            console.print("[yellow]⚠️ Content not copied (paranoid mode)[/yellow]")
+            raise typer.Exit(0)
+
     if preview:
         console.print(Panel(
-            Syntax(html, "html", word_wrap=True),
-            title="Rich text (HTML) preview",
+            Syntax(result, config['lexer'], word_wrap=True),
+            title=config['preview_title'],
             border_style="cyan"
         ))
         if not yes and not Confirm.ask(
-            "\n[yellow]Copy rich text to clipboard?[/yellow]"
+            "\n[yellow]Copy converted content to clipboard?[/yellow]"
         ):
             console.print("[yellow]Cancelled[/yellow]")
             raise typer.Exit(0)
 
     try:
-        clipboard.copy_rich_text_to_clipboard(html, plain_text=content)
+        if mode == 'rich':
+            clipboard.copy_rich_text_to_clipboard(result, plain_text=content)
+        else:
+            clipboard.copy_to_clipboard(result)
     except (ContentTooLargeError, ClipboardAccessError) as e:
         console.print(f"[red]❌ {str(e)}[/red]")
         raise typer.Exit(1)
 
     if filename:
-        output_filename = filename if Path(filename).suffix else f"{filename}.html"
-        files.write_text(output_filename, html, force=force)
-        console.print(f"[green]💾 HTML saved to '{output_filename}'[/green]")
+        if Path(filename).suffix:
+            output_filename = filename
+        else:
+            output_filename = f"{filename}{config['default_ext']}"
+        files.write_text(output_filename, result, force=force)
+        console.print(f"[green]💾 Saved to '{output_filename}'[/green]")
 
-    html_size = len(html.encode('utf-8'))
+    result_size = len(result.encode('utf-8'))
     size_str = (
-        f"{html_size:,} bytes" if html_size < 1024 else f"{html_size/1024:.1f} KB"
+        f"{result_size:,} bytes" if result_size < 1024
+        else f"{result_size/1024:.1f} KB"
+    )
+    detail = config['success_detail']
+    extra = (
+        " | Plain-text fallback: original markdown" if mode == 'rich' else ""
     )
     console.print(Panel(
-        "[green]✅ Rich text copied to clipboard[/green]\n"
-        "Paste into Confluence, Google Docs, Gmail, or Slack for "
-        "formatted content.\n"
-        f"[dim]HTML: {size_str} | Plain-text fallback: original markdown[/dim]",
+        f"[green]✅ {config['success']}[/green]\n"
+        f"{detail}\n"
+        f"[dim]Output: {size_str}{extra}[/dim]",
         border_style="green"
     ))
 
@@ -1262,6 +1333,23 @@ def main(
              "Docs, Gmail, or Slack. Saves the HTML too when a filename "
              "is given"
     ),
+    plain: bool = typer.Option(
+        False,
+        "--plain",
+        "-P",
+        help="Convert clipboard Markdown to clean plain text (syntax "
+             "stripped) and copy it back — paste naturally into email, "
+             "LinkedIn, or chat. Saves as .txt when a filename is given"
+    ),
+    md: bool = typer.Option(
+        False,
+        "--md",
+        "-M",
+        help="Convert the clipboard's rich text (HTML) flavor to Markdown "
+             "and copy it back — feed content copied from web pages or "
+             "docs into LLMs and notes. Saves as .md when a filename is "
+             "given"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -1300,8 +1388,10 @@ def main(
         clipdrop -yt --lang es      # Spanish transcript
         clipdrop -yt --chapters     # Include chapter markers
 
-      [green]Rich Text:[/green]
+      [green]Format Bridge:[/green]
         clipdrop --rich             # Markdown → rich text, back to clipboard
+        clipdrop --plain            # Markdown → clean plain text (no syntax)
+        clipdrop --md               # Rich clipboard (HTML) → Markdown
         clipdrop -r -p              # Preview HTML before copying
         clipdrop -r page            # Also save the HTML → page.html
 
@@ -1360,10 +1450,19 @@ def main(
             summarize=summarize,
         )
 
-    # Check if this is rich text mode (before audio auto-detect so stale
-    # clipboard audio can't hijack the command)
-    if rich:
-        return handle_rich_copy(
+    # Check if this is a format bridge mode (before audio auto-detect so
+    # stale clipboard audio can't hijack the command)
+    bridge_flags = [('rich', rich), ('plain', plain), ('md', md)]
+    selected_modes = [name for name, enabled in bridge_flags if enabled]
+    if len(selected_modes) > 1:
+        flags = ' and '.join(f'--{name}' for name in selected_modes)
+        console.print(
+            f"[red]❌ {flags} can't be combined — pick one conversion[/red]"
+        )
+        raise typer.Exit(1)
+    if selected_modes:
+        return handle_format_bridge(
+            mode=selected_modes[0],
             filename=filename,
             scan=paranoid_flag,
             paranoid_mode=paranoid_mode,
@@ -1398,6 +1497,8 @@ def main(
         console.print("  clipdrop --youtube     # Download YouTube transcript")
         console.print("  clipdrop --audio       # Transcribe audio from clipboard")
         console.print("  clipdrop --rich        # Markdown → rich text clipboard")
+        console.print("  clipdrop --plain       # Markdown → plain text clipboard")
+        console.print("  clipdrop --md          # Rich clipboard → Markdown")
         console.print("  clipdrop -yt output.srt # YouTube with custom name")
         console.print("\n[dim]Try 'clipdrop --help' for more options[/dim]")
         raise typer.Exit(1)

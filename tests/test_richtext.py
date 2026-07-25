@@ -3,6 +3,8 @@
 import pytest
 
 from clipdrop.richtext import (
+    html_to_markdown,
+    markdown_to_plain,
     markdown_to_rich_html,
     postprocess_html,
     render_markdown,
@@ -155,3 +157,118 @@ class TestMarkdownToRichHtml:
         )
         assert "<span" not in html
         assert "styled" in html
+
+
+class TestMarkdownToPlain:
+    """Test Markdown to clean plain text conversion."""
+
+    def test_heading_becomes_plain_line(self):
+        assert markdown_to_plain("# Big Title") == "Big Title"
+
+    def test_emphasis_stripped(self):
+        result = markdown_to_plain("**bold** and *italic* and ~~gone~~")
+        assert result == "bold and italic and gone"
+
+    def test_inline_code_stripped(self):
+        assert markdown_to_plain("run `pytest` now") == "run pytest now"
+
+    def test_link_with_distinct_url_keeps_url(self):
+        result = markdown_to_plain("[Docs](https://example.com/docs)")
+        assert result == "Docs (https://example.com/docs)"
+
+    def test_bare_autolink_not_duplicated(self):
+        result = markdown_to_plain("<https://example.com>")
+        assert result == "https://example.com"
+
+    def test_unordered_list_bullets(self):
+        result = markdown_to_plain("- one\n- two")
+        assert result == "- one\n- two"
+
+    def test_ordered_list_numbering(self):
+        result = markdown_to_plain("1. first\n2. second")
+        assert result == "1. first\n2. second"
+
+    def test_nested_list_indentation(self):
+        result = markdown_to_plain("- outer\n  - inner")
+        assert result == "- outer\n  - inner"
+
+    def test_paragraphs_separated_by_blank_line(self):
+        result = markdown_to_plain("first para\n\nsecond para")
+        assert result == "first para\n\nsecond para"
+
+    def test_code_block_kept_verbatim(self):
+        result = markdown_to_plain("```python\ndef f():\n    return 1\n```")
+        assert "def f():\n    return 1" in result
+        assert "```" not in result
+
+    def test_table_becomes_tab_separated(self):
+        result = markdown_to_plain("| A | B |\n|---|---|\n| 1 | 2 |")
+        assert "A\tB" in result
+        assert "1\t2" in result
+        assert "|" not in result
+
+    def test_blockquote_text_kept(self):
+        result = markdown_to_plain("> wise words")
+        assert result == "wise words"
+
+    def test_horizontal_rule_dropped(self):
+        result = markdown_to_plain("above\n\n---\n\nbelow")
+        assert result == "above\n\nbelow"
+
+    def test_full_document(self, sample_markdown):
+        result = markdown_to_plain(sample_markdown)
+        assert "Test Document" in result
+        assert "Bold text" in result
+        for token in ("**", "# ", "](", "```"):
+            assert token not in result
+
+    def test_unicode(self):
+        assert markdown_to_plain("**Héllo 世界 🌍**") == "Héllo 世界 🌍"
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            markdown_to_plain("   ")
+
+
+class TestHtmlToMarkdown:
+    """Test HTML (rich clipboard flavor) to Markdown conversion."""
+
+    def test_heading(self):
+        assert html_to_markdown("<h1>Title</h1>").startswith("# Title")
+
+    def test_emphasis(self):
+        result = html_to_markdown("<p><strong>bold</strong> and <em>italic</em></p>")
+        assert "**bold**" in result
+        assert "_italic_" in result or "*italic*" in result
+
+    def test_link_inline(self):
+        result = html_to_markdown('<a href="https://example.com">Example</a>')
+        assert "[Example](https://example.com)" in result
+
+    def test_unordered_list_dashes(self):
+        result = html_to_markdown("<ul><li>one</li><li>two</li></ul>")
+        assert "- one" in result
+        assert "- two" in result
+
+    def test_code_block(self):
+        result = html_to_markdown("<pre><code>x = 1\ny = 2</code></pre>")
+        assert "x = 1" in result
+
+    def test_no_line_wrapping(self):
+        long_text = "word " * 60
+        result = html_to_markdown(f"<p>{long_text.strip()}</p>")
+        assert result.count("\n") == 0
+
+    def test_span_soup_flattened(self):
+        result = html_to_markdown(
+            '<p><span style="color:red">just</span> <span>text</span></p>'
+        )
+        assert result == "just text"
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError):
+            html_to_markdown("")
+
+    def test_whitespace_only_html_raises(self):
+        with pytest.raises(ValueError):
+            html_to_markdown("<p>   </p>")

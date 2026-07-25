@@ -5,6 +5,20 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Plain text copy (`--plain`/`-P`)** — convert clipboard Markdown to clean
+  plain text and copy it back: syntax stripped, structure kept (bullets,
+  paragraph breaks, verbatim code blocks, link URLs in parentheses, tables as
+  tab-separated rows). Paste AI output naturally into email, LinkedIn, or chat
+- **Markdown copy (`--md`/`-M`)** — convert the clipboard's rich text (HTML)
+  flavor to GFM Markdown and copy it back. Turn anything copied from a web
+  page, Google Docs, or Confluence into clean Markdown for LLMs and notes
+- Both compose with `--preview`, secret scanning (`-s`/`--scan-mode`), and an
+  optional filename (`.txt`/`.md` defaults); `--rich`/`--plain`/`--md` are
+  mutually exclusive
+
 ## [2.1.0] - 2026-07-22
 
 ### Added
