@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both compose with `--preview`, secret scanning (`-s`/`--scan-mode`), and an
   optional filename (`.txt`/`.md` defaults); `--rich`/`--plain`/`--md` are
   mutually exclusive
+- **Clipboard history** — local, secret-aware clip history for the terminal:
+  - `--history-daemon` polls the clipboard and stores each text clip in
+    `~/.clipdrop/history.jsonl` (owner-only permissions, 50-entry cap,
+    oversized clips skipped, adjacent duplicates deduped)
+  - **Clips containing secrets are never persisted** — every clip runs
+    through the paranoid scanner before touching disk
+  - `--history` browses recent clips; `--last N` restores the Nth most
+    recent to the clipboard (or saves it with format detection when a
+    filename is given); `--pick` is an interactive picker;
+    `--history-clear` wipes the store
+  - History operations are mutually exclusive with the format bridge,
+    `--audio`, and `--youtube`
 
 ## [2.1.0] - 2026-07-22
 

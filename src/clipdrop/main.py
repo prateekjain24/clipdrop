@@ -14,10 +14,12 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 from rich.syntax import Syntax
-from rich.prompt import Confirm
+from rich.prompt import Confirm, IntPrompt
+from rich.table import Table
 
 from clipdrop import __version__
 from clipdrop import clipboard, detect, files, images, pdf, richtext
+from clipdrop import history as history_store
 from clipdrop.macos_ai import summarize_content, summarize_content_with_chunking
 from clipdrop.error_helpers import display_error, show_success_message
 from clipdrop.paranoid import (
@@ -1073,6 +1075,139 @@ _BRIDGE_MODES = {
 }
 
 
+def _render_history_table(entries) -> Table:
+    """Build a Rich table of clipboard history entries."""
+    table = Table(title="Clipboard History", show_lines=False)
+    table.add_column("#", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Age", style="dim", no_wrap=True)
+    table.add_column("Preview")
+    table.add_column("Size", justify="right", style="dim", no_wrap=True)
+
+    for index, entry in enumerate(entries, start=1):
+        preview = ' '.join(entry.text.split())
+        if len(preview) > 60:
+            preview = preview[:57] + "..."
+        size = len(entry.text.encode('utf-8'))
+        size_str = f"{size:,} B" if size < 1024 else f"{size/1024:.1f} KB"
+        table.add_row(str(index), history_store.format_age(entry.ts),
+                      preview, size_str)
+    return table
+
+
+def _restore_history_entry(
+    entry,
+    filename: Optional[str],
+    force: bool,
+) -> None:
+    """Copy a history entry back to the clipboard, or save it to a file."""
+    if filename:
+        output_filename = detect.add_extension(filename, entry.text)
+        files.write_text(output_filename, entry.text, force=force)
+        console.print(f"[green]💾 Saved clip to '{output_filename}'[/green]")
+    else:
+        clipboard.copy_to_clipboard(entry.text)
+        preview = ' '.join(entry.text.split())
+        if len(preview) > 50:
+            preview = preview[:47] + "..."
+        console.print(Panel(
+            "[green]✅ Clip restored to clipboard[/green]\n"
+            f"[dim]{preview}[/dim]",
+            border_style="green"
+        ))
+
+
+def handle_history(
+    show: bool,
+    daemon: bool,
+    last: Optional[int],
+    pick: bool,
+    clear: bool,
+    filename: Optional[str],
+    force: bool,
+    yes: bool,
+) -> None:
+    """Dispatch clipboard-history operations (--history*, --last, --pick)."""
+    if daemon:
+        console.print(Panel(
+            "[cyan]📋 Watching the clipboard[/cyan]\n"
+            f"Storing up to {history_store.HISTORY_MAX_ENTRIES} clips in "
+            f"{history_store.get_history_file()}\n"
+            "[dim]Clips that look like secrets are never stored. "
+            "Press Ctrl+C to stop.[/dim]",
+            border_style="cyan"
+        ))
+        try:
+            history_store.watch_clipboard(
+                on_capture=lambda text: console.print(
+                    f"[dim]📎 Captured {len(text):,} chars[/dim]"
+                )
+            )
+        except KeyboardInterrupt:
+            console.print("\n[yellow]History capture stopped[/yellow]")
+        return
+
+    if clear:
+        path = history_store.get_history_file()
+        if not path.exists():
+            console.print("[yellow]History is already empty[/yellow]")
+            return
+        if not (force or yes) and not Confirm.ask(
+            "[yellow]Delete all clipboard history?[/yellow]"
+        ):
+            console.print("[yellow]Cancelled[/yellow]")
+            raise typer.Exit(0)
+        history_store.clear_history()
+        console.print("[green]✅ Clipboard history cleared[/green]")
+        return
+
+    entries = history_store.get_entries()
+
+    if show:
+        if not entries:
+            console.print(
+                "[yellow]📋 No clipboard history yet[/yellow]\n"
+                "[dim]Start capturing with: clipdrop --history-daemon[/dim]"
+            )
+            return
+        console.print(_render_history_table(entries))
+        console.print(
+            "[dim]Restore with: clipdrop --last N  |  "
+            "clipdrop --pick[/dim]"
+        )
+        return
+
+    if not entries:
+        console.print(
+            "[yellow]📋 No clipboard history yet[/yellow]\n"
+            "[dim]Start capturing with: clipdrop --history-daemon[/dim]"
+        )
+        raise typer.Exit(1)
+
+    if last is not None:
+        try:
+            entry = history_store.get_entry(last)
+        except IndexError as e:
+            console.print(f"[red]❌ {str(e)}[/red]")
+            raise typer.Exit(1)
+        return _restore_history_entry(entry, filename, force)
+
+    # --pick
+    console.print(_render_history_table(entries))
+    if yes:
+        choice = 1
+    else:
+        choice = IntPrompt.ask(
+            "[yellow]Which clip?[/yellow]",
+            default=1,
+        )
+    try:
+        entry = history_store.get_entry(choice)
+    except IndexError as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        raise typer.Exit(1)
+    return _restore_history_entry(entry, filename, force)
+
+
 def handle_format_bridge(
     mode: str,
     filename: Optional[str],
@@ -1350,6 +1485,37 @@ def main(
              "docs into LLMs and notes. Saves as .md when a filename is "
              "given"
     ),
+    history: bool = typer.Option(
+        False,
+        "--history",
+        help="Show recent clipboard history captured by --history-daemon"
+    ),
+    history_daemon: bool = typer.Option(
+        False,
+        "--history-daemon",
+        help="Watch the clipboard and store each text clip locally "
+             "(~/.clipdrop/history.jsonl, capped at 50 entries). Clips "
+             "that look like secrets are never stored. Run in the "
+             "foreground, or via nohup/launchd for background capture"
+    ),
+    last: Optional[int] = typer.Option(
+        None,
+        "--last",
+        metavar="N",
+        help="Restore the Nth most recent history clip: copy it back to "
+             "the clipboard, or save it when a filename is given"
+    ),
+    pick: bool = typer.Option(
+        False,
+        "--pick",
+        help="Interactively pick a history clip to restore to the "
+             "clipboard (or save when a filename is given)"
+    ),
+    history_clear: bool = typer.Option(
+        False,
+        "--history-clear",
+        help="Delete all stored clipboard history"
+    ),
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -1427,6 +1593,48 @@ def main(
     paranoid_flag = scan
     paranoid_mode = scan_mode
 
+    # Format bridge mode selection (validated before any dispatch)
+    bridge_flags = [('rich', rich), ('plain', plain), ('md', md)]
+    selected_modes = [name for name, enabled in bridge_flags if enabled]
+    if len(selected_modes) > 1:
+        flags = ' and '.join(f'--{name}' for name in selected_modes)
+        console.print(
+            f"[red]❌ {flags} can't be combined — pick one conversion[/red]"
+        )
+        raise typer.Exit(1)
+
+    # History operations are their own mode, exclusive with everything else
+    history_flags = [
+        ('history', history),
+        ('history-daemon', history_daemon),
+        ('last', last is not None),
+        ('pick', pick),
+        ('history-clear', history_clear),
+    ]
+    selected_history = [name for name, enabled in history_flags if enabled]
+    if selected_history:
+        others = selected_modes + (['audio'] if audio else []) \
+            + (['youtube'] if youtube else [])
+        if len(selected_history) > 1 or others:
+            combined = ' and '.join(
+                f'--{name}' for name in selected_history + others
+            )
+            console.print(
+                f"[red]❌ {combined} can't be combined — pick one "
+                f"operation[/red]"
+            )
+            raise typer.Exit(1)
+        return handle_history(
+            show=history,
+            daemon=history_daemon,
+            last=last,
+            pick=pick,
+            clear=history_clear,
+            filename=filename,
+            force=force,
+            yes=yes,
+        )
+
     # Check if this is transcribe mode (explicit flag)
     if audio:
         return handle_audio_transcription(
@@ -1450,16 +1658,8 @@ def main(
             summarize=summarize,
         )
 
-    # Check if this is a format bridge mode (before audio auto-detect so
-    # stale clipboard audio can't hijack the command)
-    bridge_flags = [('rich', rich), ('plain', plain), ('md', md)]
-    selected_modes = [name for name, enabled in bridge_flags if enabled]
-    if len(selected_modes) > 1:
-        flags = ' and '.join(f'--{name}' for name in selected_modes)
-        console.print(
-            f"[red]❌ {flags} can't be combined — pick one conversion[/red]"
-        )
-        raise typer.Exit(1)
+    # Format bridge dispatch (before audio auto-detect so stale clipboard
+    # audio can't hijack the command)
     if selected_modes:
         return handle_format_bridge(
             mode=selected_modes[0],

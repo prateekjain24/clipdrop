@@ -129,7 +129,25 @@ clipdrop -r page                 # Also save the output → page.html (.txt/.md 
 - `--md`: turns anything copied from a web page or rich editor into clean GFM Markdown
 - All three compose with secret scanning (`-s`/`--scan-mode`)
 
-### 9. ✍️ **Transform** (macOS 26.0+) - Writing Tools for the Terminal
+### 9. 🕘 **Clipboard History** - Never Lose a Clip Again
+Copied over the thing you needed? A lightweight, local, secret-aware history
+for terminal people — no menubar app required:
+```bash
+clipdrop --history-daemon        # Start capturing (foreground; nohup for background)
+clipdrop --history               # Browse recent clips
+clipdrop --last 2                # Restore the 2nd most recent clip to the clipboard
+clipdrop --last 1 snippet        # ...or save it to a file (format auto-detected)
+clipdrop --pick                  # Interactive picker
+clipdrop --history-clear         # Wipe it
+```
+- **Secrets are never stored** — every clip runs through the secret scanner
+  before persisting; credentials never touch disk
+- Plain local storage (`~/.clipdrop/history.jsonl`, owner-only permissions),
+  capped at 50 entries, oversized clips skipped
+- Run the daemon in the background: `nohup clipdrop --history-daemon >/dev/null 2>&1 &`
+  (or wrap it in a launchd agent for start-at-login)
+
+### 10. ✍️ **Transform** (macOS 26.0+) - Writing Tools for the Terminal
 Reshape copied text on the way to a file, entirely on-device:
 ```bash
 clipdrop email.txt --rewrite formal                    # restyle (concise/friendly/…)
@@ -249,6 +267,8 @@ clipdrop --audio        # Force audio transcription
 clipdrop --rich         # Markdown → rich text, back to the clipboard
 clipdrop --plain        # Markdown → clean plain text, back to the clipboard
 clipdrop --md           # Rich clipboard (HTML) → Markdown, back to the clipboard
+clipdrop --history      # Browse captured clipboard history
+clipdrop --last N       # Restore the Nth most recent clip
 ```
 
 ### Filters & Options
