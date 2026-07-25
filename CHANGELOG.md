@@ -5,6 +5,32 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Plain text copy (`--plain`/`-P`)** — convert clipboard Markdown to clean
+  plain text and copy it back: syntax stripped, structure kept (bullets,
+  paragraph breaks, verbatim code blocks, link URLs in parentheses, tables as
+  tab-separated rows). Paste AI output naturally into email, LinkedIn, or chat
+- **Markdown copy (`--md`/`-M`)** — convert the clipboard's rich text (HTML)
+  flavor to GFM Markdown and copy it back. Turn anything copied from a web
+  page, Google Docs, or Confluence into clean Markdown for LLMs and notes
+- Both compose with `--preview`, secret scanning (`-s`/`--scan-mode`), and an
+  optional filename (`.txt`/`.md` defaults); `--rich`/`--plain`/`--md` are
+  mutually exclusive
+- **Clipboard history** — local, secret-aware clip history for the terminal:
+  - `--history-daemon` polls the clipboard and stores each text clip in
+    `~/.clipdrop/history.jsonl` (owner-only permissions, 50-entry cap,
+    oversized clips skipped, adjacent duplicates deduped)
+  - **Clips containing secrets are never persisted** — every clip runs
+    through the paranoid scanner before touching disk
+  - `--history` browses recent clips; `--last N` restores the Nth most
+    recent to the clipboard (or saves it with format detection when a
+    filename is given); `--pick` is an interactive picker;
+    `--history-clear` wipes the store
+  - History operations are mutually exclusive with the format bridge,
+    `--audio`, and `--youtube`
+
 ## [2.1.0] - 2026-07-22
 
 ### Added
