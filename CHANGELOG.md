@@ -5,7 +5,7 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0] - 2026-07-25
+## [2.3.0] - 2026-07-25
 
 ### Added
 - **YouTube blocking resilience** — `--youtube` now survives YouTube's
@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An HTTP 429 during subtitle download was previously misreported as
   "No captions available" — it now surfaces as a rate-limit error with
   retry guidance
+
+## [2.2.0] - 2026-07-25
+
+### Added
 - **Plain text copy (`--plain`/`-P`)** — convert clipboard Markdown to clean
   plain text and copy it back: syntax stripped, structure kept (bullets,
   paragraph breaks, verbatim code blocks, link URLs in parentheses, tables as
