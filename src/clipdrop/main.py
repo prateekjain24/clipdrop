@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 from pathlib import Path
@@ -32,6 +33,8 @@ from clipdrop.exceptions import (
     ContentTooLargeError,
     YTDLPNotFoundError,
     NoCaptionsError,
+    YouTubeBotCheckError,
+    YouTubeRateLimitError,
     YouTubeError
 )
 from clipdrop.subtitles import to_srt, to_txt, to_md
@@ -848,6 +851,24 @@ def handle_audio_transcription(
         raise typer.Exit(ExitCode.PLATFORM_ERROR)
 
 
+def _print_ytdlp_staleness_warning() -> None:
+    """Warn when the installed yt-dlp release is old.
+
+    YouTube changes its site constantly and yt-dlp ships countermeasures
+    in response, so a months-old release is the most common reason
+    extraction starts failing.
+    """
+    from clipdrop.youtube import get_ytdlp_version, ytdlp_age_days
+
+    version = get_ytdlp_version()
+    age = ytdlp_age_days(version)
+    if age is not None and age > 60:
+        console.print(
+            f"[yellow]⚠️ Installed yt-dlp ({version}) is ~{age} days old — "
+            f"YouTube breaks old releases. Update with: pip install -U yt-dlp[/yellow]"
+        )
+
+
 def handle_youtube_transcript(
     filename: Optional[str],
     scan: bool = False,
@@ -858,6 +879,7 @@ def handle_youtube_transcript(
     yes: bool = False,
     chapters: bool = False,
     summarize: bool = False,
+    cookies_from_browser: Optional[str] = None,
 ) -> None:
     """
     Handle YouTube transcript download command.
@@ -871,7 +893,13 @@ def handle_youtube_transcript(
         lang: Preferred subtitle language code
         yes: Whether to auto-accept paranoid prompts
         chapters: Whether to include chapter markers in transcript
+        cookies_from_browser: Browser to read YouTube cookies from
+            (chrome, firefox, safari, ...) to bypass bot checks
     """
+    if cookies_from_browser:
+        from clipdrop.youtube import ENV_COOKIES_FROM_BROWSER
+        os.environ[ENV_COOKIES_FROM_BROWSER] = cookies_from_browser
+
     # Get clipboard content
     url = clipboard.get_text()
     if not url or not url.strip():
@@ -1035,8 +1063,25 @@ def handle_youtube_transcript(
         console.print(f"[red]❌ {str(e)}[/red]")
         console.print("[dim]This video may not have captions available.[/dim]")
         raise typer.Exit(1)
+    except YouTubeBotCheckError as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        _print_ytdlp_staleness_warning()
+        console.print("\n[cyan]YouTube is blocking automated requests from this network.[/cyan]")
+        console.print("[yellow]Things that usually fix it:[/yellow]")
+        console.print("  • Use browser cookies: [bold]clipdrop -yt --cookies-from-browser chrome[/bold]")
+        console.print("    (also: firefox, safari, edge, brave)")
+        console.print("  • Update yt-dlp: [bold]pip install -U yt-dlp[/bold]")
+        console.print("  • Turn off VPN/proxy — datacenter IPs are flagged by YouTube")
+        console.print("[dim]Env vars: CLIPDROP_YT_COOKIES_FROM_BROWSER, CLIPDROP_YT_COOKIES (cookies file), CLIPDROP_YT_PLAYER_CLIENT[/dim]")
+        raise typer.Exit(1)
+    except YouTubeRateLimitError as e:
+        console.print(f"[red]❌ {str(e)}[/red]")
+        console.print("[yellow]YouTube is rate-limiting this connection. Wait a few minutes and retry.[/yellow]")
+        console.print("[dim]Persistent 429s usually mean a flagged IP (VPN/cloud) — try browser cookies: --cookies-from-browser chrome[/dim]")
+        raise typer.Exit(1)
     except YouTubeError as e:
         console.print(f"[red]❌ YouTube error: {str(e)}[/red]")
+        _print_ytdlp_staleness_warning()
         raise typer.Exit(1)
     except Exception as e:
         console.print(f"[red]❌ Unexpected error: {str(e)}[/red]")
@@ -1452,6 +1497,15 @@ def main(
              ".txt (plain text), .md (markdown with timestamps). "
              "Use --lang for specific language (150+ supported)"
     ),
+    cookies_from_browser: Optional[str] = typer.Option(
+        None,
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        help="Read YouTube cookies from this browser (chrome, firefox, "
+             "safari, edge, brave) so requests are authenticated. Fixes "
+             "'Sign in to confirm you're not a bot' blocks. Only used "
+             "with --youtube"
+    ),
     audio: bool = typer.Option(
         False,
         "--audio",
@@ -1656,6 +1710,7 @@ def main(
             yes=yes,
             chapters=chapters,
             summarize=summarize,
+            cookies_from_browser=cookies_from_browser,
         )
 
     # Format bridge dispatch (before audio auto-detect so stale clipboard

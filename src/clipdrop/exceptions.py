@@ -161,3 +161,28 @@ class NoCaptionsError(YouTubeError):
         else:
             message = "No captions available for this video"
         super().__init__(message)
+
+
+class YouTubeBotCheckError(YouTubeError):
+    """Exception raised when YouTube demands sign-in / bot verification.
+
+    YouTube increasingly blocks requests from datacenter, VPN, and other
+    flagged IPs with "Sign in to confirm you're not a bot". Authenticating
+    with browser cookies is the reliable workaround.
+    """
+    def __init__(self, detail: str = None):
+        message = (
+            "YouTube blocked the request with a bot-verification check"
+        )
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
+
+
+class YouTubeRateLimitError(YouTubeError):
+    """Exception raised when YouTube rate-limits requests (HTTP 429)."""
+    def __init__(self, detail: str = None):
+        message = "YouTube is rate-limiting requests (HTTP 429)"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)

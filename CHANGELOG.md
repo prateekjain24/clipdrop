@@ -5,7 +5,38 @@ All notable changes to ClipDrop will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-07-25
+
+### Added
+- **YouTube blocking resilience** — `--youtube` now survives YouTube's
+  anti-bot measures much more often:
+  - `--cookies-from-browser BROWSER` authenticates requests with your
+    browser's cookies (chrome, firefox, safari, edge, brave), the reliable
+    fix for "Sign in to confirm you're not a bot" blocks
+  - Env overrides: `CLIPDROP_YT_COOKIES_FROM_BROWSER`, `CLIPDROP_YT_COOKIES`
+    (cookies file), `CLIPDROP_YT_PLAYER_CLIENT` (pin a yt-dlp player client)
+  - Bot-check and HTTP 429 failures are detected and reported with targeted
+    fixes instead of a generic error; rate limits retry with exponential
+    backoff; bot checks automatically retry once via the `mweb` player client
+  - Warns when the installed `yt-dlp` release is over 60 days old — the most
+    common cause of sudden YouTube breakage
+
+### Changed
+- Raised the `clipdrop[youtube]` extra's minimum `yt-dlp` to 2026.7.4 so
+  upgrades pull in current YouTube extractor fixes
+- YouTube metadata and caption listing now share a single cached `yt-dlp`
+  call (one network round-trip instead of two per video), reducing exposure
+  to YouTube's bot checks and rate limits; caption metadata is cached for
+  7 days in `~/.cache/clipdrop/youtube/<id>/metadata.json`
+- Caption extraction no longer fails when YouTube blocks only the media
+  formats (`--ignore-no-formats-error`)
+
+### Fixed
+- An HTTP 429 during subtitle download was previously misreported as
+  "No captions available" — it now surfaces as a rate-limit error with
+  retry guidance
+
+## [2.2.0] - 2026-07-25
 
 ### Added
 - **Plain text copy (`--plain`/`-P`)** — convert clipboard Markdown to clean

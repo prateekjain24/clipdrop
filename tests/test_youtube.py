@@ -4,7 +4,7 @@ import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock
 from src.clipdrop.youtube import (
     validate_youtube_url,
     extract_video_id,
@@ -219,6 +219,25 @@ class TestYTDLPCheck:
         mock_which.assert_called_once_with('yt-dlp')
 
 
+def _metadata_json(manual_subs=None, auto_subs=None, **overrides):
+    """Build a yt-dlp -J style JSON payload for mocking."""
+    data = {
+        'title': 'Test Video',
+        'id': 'dQw4w9WgXcQ',
+        'uploader': 'TestUser',
+        'duration': 300,
+        'upload_date': '20240101',
+        'description': 'Description',
+        'view_count': 1000,
+        'like_count': 50,
+        'chapters': None,
+        'subtitles': manual_subs or {},
+        'automatic_captions': auto_subs or {},
+    }
+    data.update(overrides)
+    return json.dumps(data)
+
+
 class TestCaptionListing:
     """Test caption listing functionality."""
 
@@ -228,7 +247,6 @@ class TestCaptionListing:
         """Test listing captions with both manual and auto-generated subtitles."""
         mock_check.return_value = (True, "yt-dlp found")
 
-        # Mock yt-dlp output
         manual_subs = {
             "en": [{"name": "English", "ext": "vtt"}],
             "es": [{"name": "Spanish", "ext": "vtt"}]
@@ -240,11 +258,14 @@ class TestCaptionListing:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = f"{json.dumps(manual_subs)}\n{json.dumps(auto_subs)}"
+        mock_result.stdout = _metadata_json(manual_subs, auto_subs)
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        captions = list_captions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            captions = list_captions(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cache_dir=tmpdir
+            )
 
         assert len(captions) == 3
         assert ("en", "English", False) in captions
@@ -257,18 +278,20 @@ class TestCaptionListing:
         """Test listing captions with only auto-generated subtitles."""
         mock_check.return_value = (True, "yt-dlp found")
 
-        manual_subs = {}
         auto_subs = {
             "en": [{"name": "English", "ext": "vtt"}]
         }
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = f"{json.dumps(manual_subs)}\n{json.dumps(auto_subs)}"
+        mock_result.stdout = _metadata_json({}, auto_subs)
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        captions = list_captions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            captions = list_captions(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cache_dir=tmpdir
+            )
 
         assert len(captions) == 1
         assert captions[0] == ("en", "English (auto-generated)", True)
@@ -284,12 +307,16 @@ class TestCaptionListing:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "{}\n{}"
+        mock_result.stdout = _metadata_json()
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        with pytest.raises(NoCaptionsError):
-            list_captions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(NoCaptionsError):
+                list_captions(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    cache_dir=tmpdir
+                )
 
     def test_list_captions_invalid_url(self):
         """Test listing captions with invalid URL."""
@@ -325,8 +352,12 @@ class TestCaptionListing:
         mock_result.stderr = "Video unavailable"
         mock_run.return_value = mock_result
 
-        with pytest.raises(YouTubeError) as exc_info:
-            list_captions("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(YouTubeError) as exc_info:
+                list_captions(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    cache_dir=tmpdir
+                )
 
         assert "Failed to fetch video info" in str(exc_info.value)
 
@@ -603,25 +634,23 @@ class TestVideoInfo:
 
     @patch('subprocess.run')
     @patch('src.clipdrop.youtube.check_ytdlp_installed')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('src.clipdrop.youtube.Path.exists')
-    @patch('src.clipdrop.youtube.ensure_cache_dir')
-    def test_get_video_info_from_cache(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+    def test_get_video_info_from_cache(self, mock_check, mock_run):
         """Test returning video info from cache."""
         mock_check.return_value = (True, "yt-dlp found")
-        mock_exists.return_value = True
 
-        cached_data = {
-            'title': 'Test Video',
-            'id': 'dQw4w9WgXcQ',
-            'cached_at': datetime.now().isoformat()
-        }
-        mock_file_open.return_value.read.return_value = json.dumps(cached_data)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "dQw4w9WgXcQ"
+            cache_path.mkdir(parents=True)
+            cached_data = {
+                'title': 'Test Video',
+                'id': 'dQw4w9WgXcQ',
+                'cached_at': datetime.now().isoformat()
+            }
+            (cache_path / "metadata.json").write_text(json.dumps(cached_data))
 
-        # Configure mock to properly handle json.load
-        mock_file_open.return_value.__enter__.return_value.read.return_value = json.dumps(cached_data)
-
-        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            result = get_video_info(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cache_dir=tmpdir
+            )
 
         assert result['title'] == 'Test Video'
         assert result['id'] == 'dQw4w9WgXcQ'
@@ -629,54 +658,63 @@ class TestVideoInfo:
 
     @patch('subprocess.run')
     @patch('src.clipdrop.youtube.check_ytdlp_installed')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('src.clipdrop.youtube.Path.exists')
-    @patch('src.clipdrop.youtube.ensure_cache_dir')
-    def test_get_video_info_expired_cache(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+    def test_get_video_info_expired_cache(self, mock_check, mock_run):
         """Test fetching new info when cache is expired."""
         mock_check.return_value = (True, "yt-dlp found")
-        mock_exists.return_value = True
 
-        # Create expired cache (8 days old)
-        old_time = datetime.now() - timedelta(days=8)
-        cached_data = {
-            'title': 'Old Title',
-            'id': 'dQw4w9WgXcQ',
-            'cached_at': old_time.isoformat()
-        }
-
-        # Configure mock to handle json.load for reading
-        mock_file_open.return_value.__enter__.return_value.read.return_value = json.dumps(cached_data)
-
-        # Mock yt-dlp response
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '"New Title"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Description"\n1000\n50\nnull'
+        mock_result.stdout = _metadata_json(title='New Title')
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "dQw4w9WgXcQ"
+            cache_path.mkdir(parents=True)
+            # Create expired cache (8 days old)
+            old_time = datetime.now() - timedelta(days=8)
+            cached_data = {
+                'title': 'Old Title',
+                'id': 'dQw4w9WgXcQ',
+                'cached_at': old_time.isoformat()
+            }
+            (cache_path / "metadata.json").write_text(json.dumps(cached_data))
+
+            result = get_video_info(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cache_dir=tmpdir
+            )
 
         assert result['title'] == 'New Title'
         mock_run.assert_called_once()
 
     @patch('subprocess.run')
     @patch('src.clipdrop.youtube.check_ytdlp_installed')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('src.clipdrop.youtube.Path.exists')
-    @patch('src.clipdrop.youtube.ensure_cache_dir')
-    def test_get_video_info_new(self, mock_ensure, mock_exists, mock_file_open, mock_check, mock_run):
+    def test_get_video_info_new(self, mock_check, mock_run):
         """Test fetching new video info."""
         mock_check.return_value = (True, "yt-dlp found")
-        mock_exists.return_value = False
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = '"Test Video"\n"dQw4w9WgXcQ"\n"TestUser"\n300\n"20240101"\n"Test Description"\n1000000\n50000\n[{"title":"Intro","start_time":0},{"title":"Main","start_time":60}]'
+        mock_result.stdout = _metadata_json(
+            description='Test Description',
+            view_count=1000000,
+            like_count=50000,
+            chapters=[
+                {"title": "Intro", "start_time": 0},
+                {"title": "Main", "start_time": 60}
+            ]
+        )
         mock_result.stderr = ""
         mock_run.return_value = mock_result
 
-        result = get_video_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = get_video_info(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ", cache_dir=tmpdir
+            )
+
+            # Metadata (including captions) is cached for reuse
+            metadata_file = Path(tmpdir) / "dQw4w9WgXcQ" / "metadata.json"
+            assert metadata_file.exists()
 
         assert result['title'] == 'Test Video'
         assert result['id'] == 'dQw4w9WgXcQ'
@@ -692,7 +730,31 @@ class TestVideoInfo:
         call_args = mock_run.call_args[0][0]
         assert 'yt-dlp' in call_args
         assert '--skip-download' in call_args
-        assert '--print' in call_args
+        assert '-J' in call_args
+        assert '--ignore-no-formats-error' in call_args
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_info_and_captions_share_one_fetch(self, mock_check, mock_run):
+        """get_video_info + list_captions should cost one network call."""
+        mock_check.return_value = (True, "yt-dlp found")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = _metadata_json(
+            {"en": [{"name": "English", "ext": "vtt"}]}
+        )
+        mock_result.stderr = ""
+        mock_run.return_value = mock_result
+
+        url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            info = get_video_info(url, cache_dir=tmpdir)
+            captions = list_captions(url, cache_dir=tmpdir)
+
+        assert info['title'] == 'Test Video'
+        assert captions == [("en", "English", False)]
+        mock_run.assert_called_once()
 
     def test_get_video_info_invalid_url(self):
         """Test getting info with invalid URL."""
@@ -1058,3 +1120,192 @@ This is a longer complete sentence that should be on its own.
         """Test converting empty VTT to Markdown."""
         assert vtt_to_md("") == ""
         assert vtt_to_md("WEBVTT") == ""
+
+class TestBlockingRobustness:
+    """Test bot-check/rate-limit detection, retries, and fallbacks."""
+
+    URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    @staticmethod
+    def _failed(stderr):
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = stderr
+        return result
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_bot_check_raises_specific_error(self, mock_check, mock_run):
+        """Bot-verification failures surface as YouTubeBotCheckError."""
+        import pytest
+        from src.clipdrop.exceptions import YouTubeBotCheckError
+
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_run.return_value = self._failed(
+            "ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you're not "
+            "a bot. This helps protect our community."
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(YouTubeBotCheckError):
+                get_video_info(self.URL, cache_dir=tmpdir)
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_bot_check_retries_with_fallback_client(self, mock_check, mock_run):
+        """A bot check triggers one retry with the fallback player client."""
+        mock_check.return_value = (True, "yt-dlp found")
+
+        success = MagicMock()
+        success.returncode = 0
+        success.stdout = _metadata_json()
+        success.stderr = ""
+        mock_run.side_effect = [
+            self._failed("Sign in to confirm you're not a bot"),
+            success,
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = get_video_info(self.URL, cache_dir=tmpdir)
+
+        assert result['title'] == 'Test Video'
+        assert mock_run.call_count == 2
+        second_cmd = mock_run.call_args_list[1][0][0]
+        assert '--extractor-args' in second_cmd
+        client_arg = second_cmd[second_cmd.index('--extractor-args') + 1]
+        assert 'player_client=mweb' in client_arg
+
+    @patch('src.clipdrop.youtube.time.sleep')
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_rate_limit_retries_then_raises(self, mock_check, mock_run, mock_sleep):
+        """HTTP 429 is retried with backoff, then surfaces a specific error."""
+        import pytest
+        from src.clipdrop.exceptions import YouTubeRateLimitError
+        from src.clipdrop.youtube import MAX_ATTEMPTS
+
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_run.return_value = self._failed("HTTP Error 429: Too Many Requests")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(YouTubeRateLimitError):
+                get_video_info(self.URL, cache_dir=tmpdir)
+
+        assert mock_run.call_count == MAX_ATTEMPTS
+        assert mock_sleep.call_count == MAX_ATTEMPTS - 1
+
+    @patch('src.clipdrop.youtube.time.sleep')
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_rate_limit_recovers_on_retry(self, mock_check, mock_run, mock_sleep):
+        """A 429 followed by success returns normally."""
+        mock_check.return_value = (True, "yt-dlp found")
+
+        success = MagicMock()
+        success.returncode = 0
+        success.stdout = _metadata_json()
+        success.stderr = ""
+        mock_run.side_effect = [
+            self._failed("HTTP Error 429: Too Many Requests"),
+            success,
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = get_video_info(self.URL, cache_dir=tmpdir)
+
+        assert result['title'] == 'Test Video'
+        assert mock_run.call_count == 2
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_cookies_env_vars_are_passed(self, mock_check, mock_run):
+        """Cookie env vars translate into yt-dlp cookie flags."""
+        from src.clipdrop.youtube import ENV_COOKIES_FROM_BROWSER
+
+        mock_check.return_value = (True, "yt-dlp found")
+
+        success = MagicMock()
+        success.returncode = 0
+        success.stdout = _metadata_json()
+        success.stderr = ""
+        mock_run.return_value = success
+
+        with patch.dict('os.environ', {ENV_COOKIES_FROM_BROWSER: 'firefox'}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                get_video_info(self.URL, cache_dir=tmpdir)
+
+        cmd = mock_run.call_args[0][0]
+        assert '--cookies-from-browser' in cmd
+        assert cmd[cmd.index('--cookies-from-browser') + 1] == 'firefox'
+
+    @patch('subprocess.run')
+    @patch('src.clipdrop.youtube.check_ytdlp_installed')
+    def test_user_player_client_env_respected(self, mock_check, mock_run):
+        """A user-pinned player client is used and not overridden on bot check."""
+        import pytest
+        from src.clipdrop.exceptions import YouTubeBotCheckError
+        from src.clipdrop.youtube import ENV_PLAYER_CLIENT
+
+        mock_check.return_value = (True, "yt-dlp found")
+        mock_run.return_value = self._failed("Sign in to confirm you're not a bot")
+
+        with patch.dict('os.environ', {ENV_PLAYER_CLIENT: 'web_safari'}):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                with pytest.raises(YouTubeBotCheckError):
+                    get_video_info(self.URL, cache_dir=tmpdir)
+
+        # No fallback retry when the user pinned a client
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args[0][0]
+        client_arg = cmd[cmd.index('--extractor-args') + 1]
+        assert 'player_client=web_safari' in client_arg
+
+    def test_classify_error_bot_check_variants(self):
+        """Both apostrophe variants of the bot-check message are detected."""
+        from src.clipdrop.youtube import _classify_ytdlp_error
+        from src.clipdrop.exceptions import YouTubeBotCheckError
+
+        for stderr in (
+            "Sign in to confirm you're not a bot",
+            "Sign in to confirm you’re not a bot",
+        ):
+            assert isinstance(_classify_ytdlp_error(stderr), YouTubeBotCheckError)
+
+    def test_classify_error_unrecognized(self):
+        """Ordinary errors are not classified."""
+        from src.clipdrop.youtube import _classify_ytdlp_error
+
+        assert _classify_ytdlp_error("Video unavailable") is None
+        assert _classify_ytdlp_error("") is None
+        assert _classify_ytdlp_error(None) is None
+
+
+class TestYtdlpVersion:
+    """Test yt-dlp version staleness helpers."""
+
+    def test_age_days_parses_date_version(self):
+        from src.clipdrop.youtube import ytdlp_age_days
+
+        recent = datetime.now() - timedelta(days=10)
+        version = f"{recent.year}.{recent.month:02d}.{recent.day:02d}"
+        age = ytdlp_age_days(version)
+        assert age is not None
+        assert 9 <= age <= 11
+
+    def test_age_days_unparseable(self):
+        from src.clipdrop.youtube import ytdlp_age_days
+
+        assert ytdlp_age_days("not-a-version") is None
+        assert ytdlp_age_days("") is None
+
+    @patch('subprocess.run')
+    def test_get_ytdlp_version(self, mock_run):
+        from src.clipdrop.youtube import get_ytdlp_version
+
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = "2026.03.17\n"
+        mock_run.return_value = result
+
+        assert get_ytdlp_version() == "2026.03.17"

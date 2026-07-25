@@ -92,6 +92,20 @@ clipdrop -yt lecture.md --lang es  # Spanish transcript
 clipdrop -yt notes.md --summarize  # Transcript + structured summary
 ```
 
+If YouTube blocks the request ("Sign in to confirm you're not a bot" —
+common on VPNs, cloud servers, and flagged networks), authenticate with
+your browser's cookies:
+```bash
+clipdrop -yt --cookies-from-browser chrome   # or firefox, safari, edge, brave
+```
+Advanced overrides (environment variables):
+- `CLIPDROP_YT_COOKIES_FROM_BROWSER` — browser to read cookies from
+- `CLIPDROP_YT_COOKIES` — path to a Netscape-format cookies file
+- `CLIPDROP_YT_PLAYER_CLIENT` — pin a yt-dlp player client (e.g. `mweb`)
+
+Keeping `yt-dlp` current matters — YouTube changes frequently and old
+releases stop working: `pip install -U yt-dlp`
+
 ### 6. 🔒 **Secret Scanner**
 Never accidentally save credentials:
 ```bash
